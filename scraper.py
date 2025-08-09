@@ -152,7 +152,8 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
 
         debug("Rufe Login-Seite auf…")
         page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
-        debug(f"Aktuelle URL nach erstem Load: {page.url}")
+        initial_url = page.url  # Speichere URL für Login-Erfolg-Prüfung
+        debug(f"Aktuelle URL nach erstem Load: {initial_url}")
 
         # Try to locate username/password fields in a robust way
         user_selectors = [
