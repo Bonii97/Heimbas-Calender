@@ -127,9 +127,28 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
     cannot be found within the page, raises RuntimeError.
     """
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        # Launch browser with more realistic settings
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor'
+            ]
+        )
+        context = browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080}
+        )
         page = context.new_page()
+        
+        # Remove webdriver property that BBj might detect
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+        """)
 
         debug("Rufe Login-Seite auf…")
         page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
@@ -344,30 +363,40 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             if nav_clicked:
                 debug("Navigation-Element gefunden und geklickt")
                 try:
-                    # Warte nur kurz auf erste Reaktion
-                    page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                    # Warte kurz und schaue was passiert
+                    page.wait_for_timeout(3000)  # Feste Wartezeit statt Load-State
                     debug(f"URL nach Navigation: {page.url}")
                     
-                    # Prüfe sofort auf Tabellen (ohne auf networkidle zu warten)
-                    page.wait_for_timeout(2000)  # Kurze Pause für Dynamic Content
-                    if contains_einsatz_table(page.content()):
+                    # Detaillierte Analyse der Seite nach Navigation
+                    current_html = page.content()
+                    soup = BeautifulSoup(current_html, "lxml")
+                    
+                    # Log page info for debugging
+                    title = soup.find("title")
+                    title_text = title.get_text(strip=True) if title else "Kein Titel"
+                    debug(f"Seitentitel nach Navigation: {title_text}")
+                    
+                    # Check all visible content
+                    body_text = soup.get_text(" ", strip=True)[:500]
+                    debug(f"Seiteninhalt (500 chars): {body_text}")
+                    
+                    # Prüfe sofort auf Tabellen
+                    if contains_einsatz_table(current_html):
                         debug("Einsatz-Tabelle nach Navigation gefunden!")
                         break
                     
-                    # Falls keine Tabelle: warte etwas länger auf Dynamic Content
-                    debug("Keine Tabelle gefunden, warte auf Dynamic Content...")
-                    for i in range(5):  # 5 Versuche á 2 Sekunden
-                        page.wait_for_timeout(2000)
-                        if contains_einsatz_table(page.content()):
-                            debug(f"Einsatz-Tabelle nach {(i+1)*2}s Dynamic Loading gefunden!")
-                            break
-                        debug(f"Versuch {i+1}/5: Noch keine Tabelle...")
-                    else:
-                        debug("Keine Tabelle nach Navigation gefunden, versuche anderen Ansatz")
-                        
+                    # Check if the navigation actually changed something
+                    all_tables = soup.find_all("table")
+                    debug(f"Tabellen nach Navigation: {len(all_tables)}")
+                    
+                    if len(all_tables) > 0:
+                        for i, table in enumerate(all_tables):
+                            table_preview = table.get_text(" ", strip=True)[:150]
+                            debug(f"Tabelle {i+1} nach Navigation: {table_preview}")
+                    
                 except Exception as ex:
-                    debug(f"Navigation-Timeout abgefangen: {ex}")
-                    # Trotzdem weiter versuchen
+                    debug(f"Navigation-Fehler: {ex}")
+                    # Continue anyway
             
             # Try JavaScript navigation for single page apps
             debug(f"Suche nach JS-Navigation (Versuch {nav_attempts + 1})…")
