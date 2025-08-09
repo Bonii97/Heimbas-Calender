@@ -860,10 +860,13 @@ def main() -> None:
         combined_entries: List[Dict[str, Any]] = []
         any_success = False
         for idx, entry in enumerate(users_list):
-            name_raw = str(entry.get("name") or f"user{idx+1}").strip()
+            # Unterstütze verschiedene Key-Varianten: name/label, user/username, pass/password
+            name_raw = str(
+                (entry.get("name") or entry.get("label") or f"user{idx+1}")
+            ).strip()
             name = slugify_name(name_raw)
-            u = str(entry.get("user") or "").strip()
-            p = str(entry.get("pass") or "").strip()
+            u = str((entry.get("user") or entry.get("username") or "")).strip()
+            p = str((entry.get("pass") or entry.get("password") or "")).strip()
             if not u or not p:
                 debug(f"Eintrag '{name_raw}' hat keine vollständigen Zugangsdaten – übersprungen.")
                 continue
