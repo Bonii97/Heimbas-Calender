@@ -95,18 +95,34 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         user_selectors = [
             'input[name="username"]',
             'input[name="user"]',
+            'input[name="benutzer"]',
+            'input[name="benutzername"]',
+            'input[name="login"]',
+            'input[name="email"]',
             'input[id*="user" i]',
+            'input[id*="benutzer" i]',
+            'input[id*="login" i]',
             'input[placeholder*="utzer" i]',  # Benutzername/Username
             'input[placeholder*="name" i]',
+            'input[placeholder*="login" i]',
             'input[type="email"]',
             'input[type="text"]',
+            # Heimbas-spezifische Selektoren
+            'input[value=""][type="text"]',  # Erstes Text-Feld
+            'table input[type="text"]',      # Text-Input in Tabelle
         ]
         pass_selectors = [
             'input[name="password"]',
             'input[name="pass"]',
+            'input[name="passwort"]',
+            'input[name="kennwort"]',
             'input[id*="pass" i]',
+            'input[id*="wort" i]',
             'input[placeholder*="ass" i]',
+            'input[placeholder*="wort" i]',
             'input[type="password"]',
+            # Heimbas-spezifische Selektoren
+            'table input[type="password"]',  # Password-Input in Tabelle
         ]
 
         # Fill username/password if present on this page
@@ -120,18 +136,28 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                 
                 # Erweiterte Selektoren für verschiedene Login-Systeme
                 extended_user_selectors = user_selectors + [
-                    'input[name="login"]',
-                    'input[name="email"]',
                     'input[id="username"]',
+                    'input[id="benutzer"]',
                     'input[id="login"]',
                     'input[id="email"]',
                     'input[class*="user"]',
+                    'input[class*="benutzer"]',
                     'input[class*="login"]',
+                    # Fallback: alle Text-Inputs
+                    'form input[type="text"]:first-of-type',
+                    'td:contains("Benutzer") + td input',
+                    'td:contains("User") + td input',
                 ]
                 
                 extended_pass_selectors = pass_selectors + [
                     'input[id="password"]',
+                    'input[id="passwort"]',
                     'input[class*="pass"]',
+                    'input[class*="wort"]',
+                    # Fallback: alle Password-Inputs
+                    'form input[type="password"]:first-of-type',
+                    'td:contains("Passwort") + td input',
+                    'td:contains("Password") + td input',
                 ]
                 
                 filled_user = try_fill(page, extended_user_selectors, username)
@@ -148,6 +174,11 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                         'css=button:has-text("Submit")',
                         'css=button[class*="login"]',
                         'css=button[class*="submit"]',
+                        # Heimbas-spezifische Button-Selektoren
+                        'css=table button',
+                        'css=table input[type="button"]',
+                        'css=td:contains("Anmelden") button',
+                        'css=td:contains("Anmelden") input',
                     ])
                     if not clicked:
                         debug("Kein Login-Button gefunden, versuche Enter in Passwort-Feld…")
