@@ -294,16 +294,29 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         max_nav_attempts = 3
         
         while nav_attempts < max_nav_attempts:
-            # Look for navigation elements in current page
+            # Look for navigation elements in current page - Heimbas-specific
             nav_clicked = try_click(page, [
-                "Einsatz-Vorschau", "Einsatz Vorschau", "Vorschau", "Einsatz",
+                # Exact text match from screenshot
+                "Einsatz-Vorschau",
+                # Heimbas-specific selectors
+                'css=div.HMBListBoxContent:has-text("Einsatz-Vorschau")',
+                'css=div.HMBListBoxContent',
+                'css=div[class*="HMBListBox"]:has-text("Einsatz-Vorschau")',
+                'css=div[class*="HMBListBox"]:has-text("Vorschau")',
+                # Generic selectors as fallback
+                "Einsatz Vorschau", "Vorschau", "Einsatz",
                 "Schedule", "Schichtplan", "Dienstplan", "Kalender", "Termine",
+                # Link/button selectors
                 'css=a[href*="einsatz"]',
                 'css=a[href*="vorschau"]',
                 'css=a[href*="schedule"]',
                 'css=a[href*="dienstplan"]',
                 'css=button[onclick*="einsatz"]',
                 'css=button[onclick*="vorschau"]',
+                # Additional BBj/Heimbas selectors
+                'css=td:has-text("Einsatz-Vorschau")',
+                'css=span:has-text("Einsatz-Vorschau")',
+                'css=div:has-text("Einsatz-Vorschau")',
             ])
             
             if nav_clicked:
@@ -319,18 +332,42 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             # Try JavaScript navigation for single page apps
             debug(f"Suche nach JS-Navigation (Versuch {nav_attempts + 1})…")
             try:
-                # Try common SPA navigation patterns
-                page.evaluate("""
-                    // Try to find and click menu items
-                    const menuItems = document.querySelectorAll('a, button, span, div');
-                    for (let item of menuItems) {
-                        const text = item.innerText || item.textContent || '';
-                        if (text.match(/(einsatz|vorschau|schedule|dienstplan|kalender)/i)) {
-                            item.click();
-                            break;
+                # Try Heimbas-specific JavaScript navigation
+                result = page.evaluate("""
+                    (function() {
+                        // Try exact match first
+                        let found = false;
+                        const elements = document.querySelectorAll('div.HMBListBoxContent, div[class*="HMBListBox"], td, span, div, a');
+                        
+                        for (let item of elements) {
+                            const text = (item.innerText || item.textContent || '').trim();
+                            if (text === 'Einsatz-Vorschau') {
+                                console.log('Found exact match:', item);
+                                item.click();
+                                found = true;
+                                break;
+                            }
                         }
-                    }
+                        
+                        if (!found) {
+                            // Fallback: partial match
+                            for (let item of elements) {
+                                const text = (item.innerText || item.textContent || '').trim();
+                                if (text.match(/(einsatz.*vorschau|vorschau.*einsatz)/i)) {
+                                    console.log('Found partial match:', item);
+                                    item.click();
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        return found;
+                    })()
                 """)
+                
+                if result:
+                    debug("JavaScript-Navigation erfolgreich")
                 page.wait_for_timeout(2000)
                 page.wait_for_load_state("networkidle", timeout=10_000)
                 
