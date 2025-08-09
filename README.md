@@ -9,8 +9,8 @@ Automatischer ICS-Kalender-Generator für Heimbas Einsatz-Vorschau.
 - iPhone-kompatible Kalenderabos
 
 ## URLs
-- Kombiniert: https://bonii97.github.io/Heimbas-Trustful-DayCare-GmbH-Calender/index.ics
-- Pro User: https://bonii97.github.io/Heimbas-Trustful-DayCare-GmbH-Calender/dienstplan_<name>.ics
+- Kombiniert: https://bonii97.github.io/Heimbas-Calender/index.ics
+- Pro User: https://bonii97.github.io/Heimbas-Calender/dienstplan_<name>.ics
 
 ## Setup
 1. Repository Secret USERS_JSON anlegen (als JSON-Array)
