@@ -5,6 +5,10 @@ on:
     - cron: "0 * * * *"  # stündlich
   workflow_dispatch: {}
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pages: write
@@ -101,6 +105,9 @@ jobs:
 User-agent: *
 Disallow: /
 ROBOTS
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
