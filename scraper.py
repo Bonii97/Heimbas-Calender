@@ -282,9 +282,9 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                         except Exception:
                             pass
                     
-                    # Wait for navigation post-login
-                    debug("Warte auf Navigation nach Login…")
-                    page.wait_for_load_state("networkidle", timeout=30_000)  # Verkürzt
+                    # Quick wait for login completion (no networkidle for legacy systems)
+                    debug("Login-Button geklickt - kurze Wartezeit…")
+                    page.wait_for_timeout(2000)  # Feste 2s statt networkidle
                     debug(f"URL nach Login: {page.url}")
                     
                     # Sofort nach Login: Prüfe auf vorhandene Tabellen
@@ -437,8 +437,7 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                 
                 if result:
                     debug("JavaScript-Navigation erfolgreich")
-                page.wait_for_timeout(1000)  # Verkürzt
-                page.wait_for_load_state("networkidle", timeout=8_000)  # Verkürzt
+                page.wait_for_timeout(2000)  # Feste 2s für legacy systems
                 
                 if contains_einsatz_table(page.content()):
                     debug("Einsatz-Tabelle nach JS-Navigation gefunden!")
