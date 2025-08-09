@@ -32,15 +32,19 @@ jobs:
         env:
           HEIMBAS_USER: ${{ secrets.HEIMBAS_USER }}
           HEIMBAS_PASS: ${{ secrets.HEIMBAS_PASS }}
-          USERS_JSON: ${{ secrets.USERS_JSON }}
+          # Unterstütze sowohl Secret als auch Repository Variable
+          USERS_JSON: ${{ secrets.USERS_JSON || vars.USERS_JSON }}
         run: |
-          set -eu
+          set -euo pipefail
           if [ -n "${USERS_JSON:-}" ]; then
             echo "USERS_JSON erkannt – Multi-User-Run"
+            # Nur LÄNGE loggen, nie den Inhalt
+            echo "USERS_JSON length: $(echo -n "$USERS_JSON" | wc -c)"
             printf "%s" "$USERS_JSON" > users.json
+            echo "users.json geschrieben: $(wc -c < users.json) Bytes"
             python scraper.py --users-json-path users.json --output dienstplan.ics
           else
-            echo "Single-User-Run"
+            echo "USERS_JSON leer – Single-User-Run (erwartet HEIMBAS_USER/HEIMBAS_PASS)"
             python scraper.py --output dienstplan.ics
           fi
 
