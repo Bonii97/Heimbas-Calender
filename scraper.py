@@ -560,7 +560,6 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         with open("lastpage.html", "w", encoding="utf-8") as f:
             f.write(html)
         # Additional debugging: save page title and URL info
-        from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "lxml")
         title = soup.find("title")
         title_text = title.get_text(strip=True) if title else "Kein Titel"
