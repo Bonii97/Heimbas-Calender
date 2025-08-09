@@ -28,17 +28,32 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Run scraper
+      - name: Run scraper (single or multi user)
         env:
           HEIMBAS_USER: ${{ secrets.HEIMBAS_USER }}
           HEIMBAS_PASS: ${{ secrets.HEIMBAS_PASS }}
+          USERS_JSON: ${{ secrets.USERS_JSON }}
         run: |
-          python scraper.py
+          set -eu
+          if [ -n "${USERS_JSON:-}" ]; then
+            echo "USERS_JSON erkannt – Multi-User-Run"
+            printf "%s" "$USERS_JSON" > users.json
+            python scraper.py --users-json-path users.json --output dienstplan.ics
+          else
+            echo "Single-User-Run"
+            python scraper.py --output dienstplan.ics
+          fi
 
       - name: Prepare site folder
         run: |
           mkdir -p site
           cp dienstplan.ics site/index.ics
+          # Falls Multi-User-Dateien vorhanden sind, kopieren
+          for f in dienstplan_*.ics; do
+            if [ -f "$f" ]; then
+              cp "$f" "site/$f"
+            fi
+          done
           cat > site/index.html <<'HTML'
           <!doctype html>
           <html lang="de">
@@ -55,6 +70,22 @@ jobs:
               <h1>Dienstplan ICS</h1>
               <p>Abonnierbare ICS-Datei:</p>
               <p><a href="./index.ics">index.ics</a></p>
+              <hr/>
+              <h2>Mehrere Benutzer</h2>
+              <p>Wenn mehrere Benutzer konfiguriert sind, findest du hier je Benutzer eine ICS-Datei:</p>
+              <ul>
+                <script>
+                  fetch('./').then(r=>r.text()).then(html=>{
+                    const m = html.match(/href=\"(dienstplan_[^\"]+\.ics)\"/g) || [];
+                    const u = document.querySelector('ul');
+                    m.map(x=>x.replace('href="','').replace('"','')).forEach(fn=>{
+                      const li=document.createElement('li');
+                      const a=document.createElement('a');
+                      a.href='./'+fn; a.textContent=fn; li.appendChild(a); u.appendChild(li);
+                    });
+                  });
+                </script>
+              </ul>
               <p>Diese Datei wird stündlich automatisch aktualisiert.</p>
             </body>
           </html>
