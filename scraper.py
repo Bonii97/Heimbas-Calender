@@ -43,24 +43,49 @@ def try_fill(page, selectors: List[str], value: str) -> bool:
                 # For GWT/BBj widgets, try different fill methods
                 first_element = locator.first
                 try:
-                    # Standard fill
+                    # Method 1: Standard fill
                     first_element.fill(value)
+                    page.wait_for_timeout(500)  # Short wait for BBj
                     return True
                 except Exception:
                     try:
-                        # Alternative: clear then type (for GWT widgets)
+                        # Method 2: Click, clear, type (für BBj-Widgets)
                         first_element.click()
+                        page.wait_for_timeout(200)
                         first_element.press('Control+a')  # Select all
-                        first_element.type(value)
+                        page.wait_for_timeout(100)
+                        first_element.type(value, delay=50)  # Slow typing for old systems
+                        page.wait_for_timeout(300)
                         return True
                     except Exception:
                         try:
-                            # Alternative: focus and type
+                            # Method 3: Focus and direct keyboard input
                             first_element.focus()
-                            page.keyboard.type(value)
+                            page.wait_for_timeout(200)
+                            page.keyboard.press('Control+a')
+                            page.wait_for_timeout(100)
+                            page.keyboard.type(value, delay=100)  # Very slow for compatibility
+                            page.wait_for_timeout(300)
                             return True
                         except Exception:
-                            continue
+                            try:
+                                # Method 4: JavaScript value assignment (last resort)
+                                page.evaluate(f"""
+                                    (function() {{
+                                        const el = document.querySelector('{sel}');
+                                        if (el) {{
+                                            el.value = '{value}';
+                                            el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                            return true;
+                                        }}
+                                        return false;
+                                    }})()
+                                """)
+                                page.wait_for_timeout(500)
+                                return True
+                            except Exception:
+                                continue
         except Exception:
             continue
     return False
@@ -164,8 +189,17 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         
         while login_attempts < max_login_attempts:
             try:
-                page.wait_for_timeout(3000)  # Länger warten für dynamische Inhalte
+                # Für alte BBj-Systeme länger warten
+                page.wait_for_timeout(5000)  # Länger warten für alte Systeme
                 debug(f"Suche Login-Felder (Versuch {login_attempts + 1})…")
+                
+                # Zusätzlich auf BBj-spezifische Initialisierung warten
+                try:
+                    page.wait_for_function("document.readyState === 'complete'", timeout=10000)
+                    page.wait_for_function("window.BBj || window.BBjLoaded || document.querySelector('.BBjControl')", timeout=5000)
+                    debug("BBj-Framework erkannt und geladen")
+                except Exception:
+                    debug("BBj-Framework-Check übersprungen")
                 
                 # Erweiterte Selektoren für verschiedene Login-Systeme
                 extended_user_selectors = user_selectors + [
