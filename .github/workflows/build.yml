@@ -1,0 +1,79 @@
+name: Build and Publish ICS
+
+on:
+  schedule:
+    - cron: "0 * * * *"  # stündlich
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run scraper
+        env:
+          HEIMBAS_USER: ${{ secrets.HEIMBAS_USER }}
+          HEIMBAS_PASS: ${{ secrets.HEIMBAS_PASS }}
+        run: |
+          python scraper.py
+
+      - name: Prepare site folder
+        run: |
+          mkdir -p site
+          cp dienstplan.ics site/index.ics
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="de">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Dienstplan ICS</title>
+              <style>
+                body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;}
+                code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
+              </style>
+            </head>
+            <body>
+              <h1>Dienstplan ICS</h1>
+              <p>Abonnierbare ICS-Datei:</p>
+              <p><a href="./index.ics">index.ics</a></p>
+              <p>Diese Datei wird stündlich automatisch aktualisiert.</p>
+            </body>
+          </html>
+          HTML
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+
