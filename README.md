@@ -19,12 +19,13 @@ Automatischer ICS-Kalender-Generator für Heimbas Einsatz-Vorschau.
 
 ### Beispiel für USERS_JSON
 
-Folgende Key-Varianten werden unterstützt (`name`/`label`, `user`/`username`, `pass`/`password`):
+Folgende Key-Varianten werden unterstützt (`name`/`label`, `user`/`username`, `pass`/`password`).
+Verwende keine Klarnamen – nur neutrale Platzhalter:
 
 ```json
 [
-  { "label": "vici",  "user": "V.Hendel", "pass": "<PASS>" },
-  { "name":  "felix", "username": "USER2", "password": "PASS2" }
+  { "label": "user1", "user": "USER1", "pass": "PASS1" },
+  { "name":  "user2", "username": "USER2", "password": "PASS2" }
 ]
 ```
 
