@@ -769,6 +769,13 @@ def set_time_range_to_six_months(page) -> None:
 
         if not made_selection:
             # 2) Klick-Pfade (Dropdown öffnen → '6 Monate' klicken)
+            # Besonderheit Heimbas: zuerst auf aktuellen Wert (z. B. '7 Tage') klicken
+            try_click(page, [
+                '7 Tage',
+                'css=button:has-text("7 Tage")',
+                'css=div:has-text("7 Tage")',
+                'css=span:has-text("7 Tage")',
+            ])
             try_click(page, [
                 'css=button:has-text("Zeitraum")',
                 'css=div:has-text("Zeitraum")',
