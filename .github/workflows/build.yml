@@ -100,11 +100,9 @@ jobs:
           </html>
           HTML
 
-          # robots.txt, um Suchmaschinen-Indexierung zu unterbinden
-          cat > site/robots.txt <<'ROBOTS'
-User-agent: *
-Disallow: /
-ROBOTS
+          # robots.txt (ohne Heredoc, damit YAML-Linter ruhig bleibt)
+          echo "User-agent: *" > site/robots.txt
+          echo "Disallow: /" >> site/robots.txt
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
