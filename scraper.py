@@ -629,6 +629,14 @@ def parse_table_entries(html: str) -> List[Dict[str, Any]]:
 
     entries: List[Dict[str, Any]] = []
     rows = chosen.find_all("tr")
+
+    # Versuche die Spaltenüberschrift für "Dauer" zu finden, um die korrekte Zelle auszulesen
+    duration_col_idx: Optional[int] = None
+    header_cells = [c.get_text("\n", strip=True) for c in rows[0].find_all(["td", "th"])] if rows else []
+    for idx, text in enumerate(header_cells):
+        if re.search(r"\bdauer\b", text, re.I):
+            duration_col_idx = idx
+            break
     for row in rows:
         cells = [c.get_text("\n", strip=True) for c in row.find_all(["td", "th"])]
         if len(cells) < 2:
@@ -643,6 +651,13 @@ def parse_table_entries(html: str) -> List[Dict[str, Any]]:
         description = infer_description(cells)
         address = infer_address(description, cells)
 
+        # Dauer aus entsprechender Spalte oder gesamtem Zeilentext extrahieren (Minuten)
+        duration_minutes: Optional[int] = None
+        if duration_col_idx is not None and len(cells) > duration_col_idx:
+            duration_minutes = extract_duration_minutes(cells[duration_col_idx])
+        if duration_minutes is None:
+            duration_minutes = extract_duration_minutes(combined)
+
         if not date_str or not start_str:
             # Not enough information to build an event; skip header or invalid rows
             continue
@@ -653,6 +668,7 @@ def parse_table_entries(html: str) -> List[Dict[str, Any]]:
             "end_time": end_str,
             "description": description,
             "address": address,
+            "duration_minutes": duration_minutes,
         })
 
     if not entries:
@@ -685,6 +701,31 @@ def extract_time_range(text: str) -> Tuple[Optional[str], Optional[str]]:
         return m.group(1), None
     return None, None
 
+
+def extract_duration_minutes(text: str) -> Optional[int]:
+    """Extract duration in minutes from text.
+
+    Unterstützte Formate:
+    - "2,0" oder "2.0" (Stunden)
+    - "2 Std." / "2 Stunden"
+    - "90 Min" / "90 Minuten"
+    - gemischte Formate in einer Zelle
+    """
+    t = text.strip().lower()
+    # Minuten-Angaben
+    m = re.search(r"(\d{1,3})\s*(min|minute|minuten)\b", t)
+    if m:
+        return int(m.group(1))
+
+    # Stunden-Angaben wie 2,0 oder 2.5 oder 2 Std.
+    m = re.search(r"(\d{1,2})([\.,](\d))?\s*(h|std|stunde|stunden)?\b", t)
+    if m:
+        hours = int(m.group(1))
+        frac = m.group(3)
+        minutes = hours * 60 + (int(frac) * 6 if frac else 0)
+        return minutes
+
+    return None
 
 def infer_description(cells: List[str]) -> str:
     """Heuristic to derive the most descriptive text from row cells."""
@@ -779,7 +820,12 @@ def build_ics(entries: List[Dict[str, Any]], output_path: str) -> None:
                 start_h, start_m, tzinfo=BERLIN_TZ
             )
 
-            if e.get("end_time"):
+            # falls explizite Dauer vorhanden, Vorrang vor Endzeit
+            explicit_duration_min: Optional[int] = e.get("duration_minutes")  # type: ignore[assignment]
+
+            if explicit_duration_min is not None and explicit_duration_min > 0:
+                end_dt = start_dt + timedelta(minutes=explicit_duration_min)
+            elif e.get("end_time"):
                 end_h, end_m = parse_time(e["end_time"])  # type: ignore[arg-type]
                 end_dt = datetime(
                     date_naive.year, date_naive.month, date_naive.day,
