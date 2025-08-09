@@ -89,17 +89,21 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
 
         debug("Rufe Login-Seite auf…")
         page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
+        debug(f"Aktuelle URL nach erstem Load: {page.url}")
 
         # Try to locate username/password fields in a robust way
         user_selectors = [
             'input[name="username"]',
+            'input[name="user"]',
             'input[id*="user" i]',
             'input[placeholder*="utzer" i]',  # Benutzername/Username
+            'input[placeholder*="name" i]',
             'input[type="email"]',
             'input[type="text"]',
         ]
         pass_selectors = [
             'input[name="password"]',
+            'input[name="pass"]',
             'input[id*="pass" i]',
             'input[placeholder*="ass" i]',
             'input[type="password"]',
@@ -107,51 +111,84 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
 
         # Fill username/password if present on this page
         try:
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(2000)
+            debug("Suche Login-Felder…")
             filled_user = try_fill(page, user_selectors, username)
             filled_pass = try_fill(page, pass_selectors, password)
 
             if filled_user and filled_pass:
-                debug("Klicke auf Anmelden…")
+                debug("Login-Felder gefüllt, klicke auf Anmelden…")
                 clicked = try_click(page, [
-                    "Anmelden", "Login", "Einloggen", "Anmeldung",
+                    "Anmelden", "Login", "Einloggen", "Anmeldung", "Sign in",
                     'css=button[type="submit"]',
+                    'css=input[type="submit"]',
                     'css=button:has-text("Anmelden")',
+                    'css=button:has-text("Login")',
                 ])
                 if not clicked:
-                    # try pressing Enter in password field
-                    page.locator(pass_selectors[0]).press("Enter")
+                    debug("Kein Login-Button gefunden, versuche Enter in Passwort-Feld…")
+                    try:
+                        page.locator(pass_selectors[0]).press("Enter")
+                    except Exception:
+                        pass
+                
+                # Wait for navigation post-login
+                debug("Warte auf Navigation nach Login…")
+                page.wait_for_load_state("networkidle", timeout=60_000)
+                debug(f"URL nach Login: {page.url}")
             else:
                 debug("Kein klassisches Login-Formular gefunden; ggf. SSO/Weiterleitung…")
 
-            # Wait for navigation post-login
-            page.wait_for_load_state("networkidle", timeout=60_000)
         except PlaywrightTimeoutError:
-            pass
+            debug("Timeout beim Login-Versuch")
 
         # Try to navigate/click to 'Einsatz-Vorschau'
         debug("Versuche zur Seite 'Einsatz-Vorschau' zu wechseln…")
-        # Click any obvious navigation element
-        try_click(page, [
-            "Einsatz-Vorschau", "Einsatz Vorschau", "Vorschau",
+        
+        # Look for navigation elements first
+        nav_clicked = try_click(page, [
+            "Einsatz-Vorschau", "Einsatz Vorschau", "Vorschau", "Einsatz",
+            "Schedule", "Schichtplan", "Dienstplan",
         ])
+        
+        if nav_clicked:
+            debug("Navigation-Element gefunden und geklickt")
+            page.wait_for_load_state("networkidle", timeout=30_000)
+            debug(f"URL nach Navigation: {page.url}")
 
         # As a fallback, try to open likely paths within the app
-        try:
-            # Some apps accept direct navigation within the same auth context
-            page.goto(base_url.rstrip('/') + "/einsatz-vorschau", wait_until="domcontentloaded", timeout=30_000)
-        except Exception:
-            pass
+        possible_paths = [
+            "/einsatz-vorschau",
+            "/einsatz",
+            "/schedule", 
+            "/dienstplan",
+            "/schichtplan",
+            "/vorschau",
+        ]
+        
+        for path in possible_paths:
+            try:
+                test_url = base_url.rstrip('/') + path
+                debug(f"Teste direkten Pfad: {test_url}")
+                page.goto(test_url, wait_until="domcontentloaded", timeout=20_000)
+                if contains_einsatz_table(page.content()):
+                    debug(f"Einsatz-Tabelle gefunden unter: {test_url}")
+                    break
+            except Exception as ex:
+                debug(f"Pfad {path} fehlgeschlagen: {ex}")
+                continue
 
         # Wait for possible table to appear
         try:
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(2000)
             # Heuristic wait: look for a table element with headers
-            page.wait_for_selector("table", timeout=20_000)
+            page.wait_for_selector("table", timeout=15_000)
+            debug("Tabelle gefunden, prüfe Inhalt…")
         except PlaywrightTimeoutError:
-            pass
+            debug("Kein table-Element gefunden")
 
         html = page.content()
+        debug(f"Finale URL: {page.url}")
         context.close()
         browser.close()
 
@@ -159,8 +196,17 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
     if not contains_einsatz_table(html):
         with open("lastpage.html", "w", encoding="utf-8") as f:
             f.write(html)
+        # Additional debugging: save page title and URL info
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "lxml")
+        title = soup.find("title")
+        title_text = title.get_text(strip=True) if title else "Kein Titel"
+        debug(f"Seitentitel: {title_text}")
+        debug(f"HTML-Länge: {len(html)} Zeichen")
+        debug(f"Tabellen gefunden: {len(soup.find_all('table'))}")
+        
         raise RuntimeError(
-            "Konnte keine Einsatz-Tabelle finden. Die zuletzt geladene Seite wurde als 'lastpage.html' gespeichert."
+            f"Konnte keine Einsatz-Tabelle finden. Seitentitel: '{title_text}'. Die zuletzt geladene Seite wurde als 'lastpage.html' gespeichert."
         )
     return html
 
