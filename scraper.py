@@ -343,13 +343,31 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             
             if nav_clicked:
                 debug("Navigation-Element gefunden und geklickt")
-                page.wait_for_load_state("networkidle", timeout=15_000)  # Verkürzt
-                debug(f"URL nach Navigation: {page.url}")
-                
-                # Check if we now have a table
-                if contains_einsatz_table(page.content()):
-                    debug("Einsatz-Tabelle nach Navigation gefunden!")
-                    break
+                try:
+                    # Warte nur kurz auf erste Reaktion
+                    page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                    debug(f"URL nach Navigation: {page.url}")
+                    
+                    # Prüfe sofort auf Tabellen (ohne auf networkidle zu warten)
+                    page.wait_for_timeout(2000)  # Kurze Pause für Dynamic Content
+                    if contains_einsatz_table(page.content()):
+                        debug("Einsatz-Tabelle nach Navigation gefunden!")
+                        break
+                    
+                    # Falls keine Tabelle: warte etwas länger auf Dynamic Content
+                    debug("Keine Tabelle gefunden, warte auf Dynamic Content...")
+                    for i in range(5):  # 5 Versuche á 2 Sekunden
+                        page.wait_for_timeout(2000)
+                        if contains_einsatz_table(page.content()):
+                            debug(f"Einsatz-Tabelle nach {(i+1)*2}s Dynamic Loading gefunden!")
+                            break
+                        debug(f"Versuch {i+1}/5: Noch keine Tabelle...")
+                    else:
+                        debug("Keine Tabelle nach Navigation gefunden, versuche anderen Ansatz")
+                        
+                except Exception as ex:
+                    debug(f"Navigation-Timeout abgefangen: {ex}")
+                    # Trotzdem weiter versuchen
             
             # Try JavaScript navigation for single page apps
             debug(f"Suche nach JS-Navigation (Versuch {nav_attempts + 1})…")
@@ -423,14 +441,30 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             ]):
                 debug(f"Tabelle {i+1} könnte Einsatz-Daten enthalten!")
 
-        # Wait for possible dynamic table to appear
-        try:
-            page.wait_for_timeout(3000)
-            # Look for any table element
-            page.wait_for_selector("table", timeout=10_000)
-            debug("Tabelle gefunden, prüfe Inhalt…")
-        except PlaywrightTimeoutError:
-            debug("Kein table-Element gefunden")
+        # Final fallback: Check current page content regardless of navigation success
+        debug("Finale Prüfung der aktuellen Seite...")
+        final_html = page.content()
+        
+        # Analyze all tables found on final page
+        soup = BeautifulSoup(final_html, "lxml")
+        all_tables = soup.find_all("table")
+        debug(f"Finale Analyse: {len(all_tables)} Tabellen auf der Seite gefunden")
+        
+        if all_tables:
+            for i, table in enumerate(all_tables):
+                table_text = table.get_text(" ", strip=True)[:300]  # Erweitert für mehr Context
+                debug(f"Tabelle {i+1} Inhalt: {table_text}...")
+                
+                # Erweiterte Keyword-Suche für Einsatz-Daten
+                if any(keyword in table_text.lower() for keyword in [
+                    "datum", "uhrzeit", "zeit", "von", "bis", "einsatz", "adresse", 
+                    "kunde", "patient", "termin", "arbeitszeit", "dienst", "schicht",
+                    "montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag",
+                    "januar", "februar", "märz", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "dezember"
+                ]):
+                    debug(f"Tabelle {i+1} enthält potentielle Einsatz-Daten - verwende sie!")
+                    # Force return this table even if our detection failed
+                    return final_html
 
         html = page.content()
         debug(f"Finale URL: {page.url}")
