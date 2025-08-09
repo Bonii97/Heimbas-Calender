@@ -40,8 +40,27 @@ def try_fill(page, selectors: List[str], value: str) -> bool:
         try:
             locator = page.locator(sel)
             if locator.count() > 0:
-                locator.first.fill(value)
-                return True
+                # For GWT/BBj widgets, try different fill methods
+                first_element = locator.first
+                try:
+                    # Standard fill
+                    first_element.fill(value)
+                    return True
+                except Exception:
+                    try:
+                        # Alternative: clear then type (for GWT widgets)
+                        first_element.click()
+                        first_element.press('Control+a')  # Select all
+                        first_element.type(value)
+                        return True
+                    except Exception:
+                        try:
+                            # Alternative: focus and type
+                            first_element.focus()
+                            page.keyboard.type(value)
+                            return True
+                        except Exception:
+                            continue
         except Exception:
             continue
     return False
@@ -93,6 +112,7 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
 
         # Try to locate username/password fields in a robust way
         user_selectors = [
+            # Standard-Selektoren
             'input[name="username"]',
             'input[name="user"]',
             'input[name="benutzer"]',
@@ -102,16 +122,24 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             'input[id*="user" i]',
             'input[id*="benutzer" i]',
             'input[id*="login" i]',
-            'input[placeholder*="utzer" i]',  # Benutzername/Username
+            'input[placeholder*="utzer" i]',
             'input[placeholder*="name" i]',
             'input[placeholder*="login" i]',
             'input[type="email"]',
-            'input[type="text"]',
+            # GWT/BBj-spezifische Selektoren (Heimbas)
+            'input.gwt-TextBox[type="text"]',
+            'input.BBjInputE[type="text"]',
+            'input.BBjControl[type="text"]',
+            'input[class*="gwt-TextBox"][type="text"]',
+            'input[class*="BBjInputE"][type="text"]',
             # Heimbas-spezifische Selektoren
-            'input[value=""][type="text"]',  # Erstes Text-Feld
-            'table input[type="text"]',      # Text-Input in Tabelle
+            'input[maxlength="20"][type="text"]',  # Aus deinem Beispiel
+            'input[autocomplete="off"][type="text"]',
+            'input[type="text"]',  # Fallback: alle Text-Inputs
+            'table input[type="text"]',
         ]
         pass_selectors = [
+            # Standard-Selektoren
             'input[name="password"]',
             'input[name="pass"]',
             'input[name="passwort"]',
@@ -120,9 +148,14 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             'input[id*="wort" i]',
             'input[placeholder*="ass" i]',
             'input[placeholder*="wort" i]',
-            'input[type="password"]',
-            # Heimbas-spezifische Selektoren
-            'table input[type="password"]',  # Password-Input in Tabelle
+            # GWT/BBj-spezifische Selektoren (Heimbas)
+            'input.gwt-TextBox[type="password"]',
+            'input.BBjInputE[type="password"]',
+            'input.BBjControl[type="password"]',
+            'input[class*="gwt-TextBox"][type="password"]',
+            'input[class*="BBjInputE"][type="password"]',
+            'input[type="password"]',  # Fallback: alle Password-Inputs
+            'table input[type="password"]',
         ]
 
         # Fill username/password if present on this page
@@ -174,6 +207,15 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                         'css=button:has-text("Submit")',
                         'css=button[class*="login"]',
                         'css=button[class*="submit"]',
+                        # GWT/BBj-spezifische Button-Selektoren (Heimbas)
+                        'css=button.gwt-Button',
+                        'css=input.gwt-Button',
+                        'css=button.BBjButton',
+                        'css=input.BBjButton',
+                        'css=button[class*="gwt-Button"]',
+                        'css=input[class*="gwt-Button"]',
+                        'css=button[class*="BBjButton"]',
+                        'css=input[class*="BBjButton"]',
                         # Heimbas-spezifische Button-Selektoren
                         'css=table button',
                         'css=table input[type="button"]',
