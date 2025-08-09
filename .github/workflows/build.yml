@@ -64,6 +64,7 @@ jobs:
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <meta name="robots" content="noindex,nofollow,noarchive" />
               <title>Dienstplan ICS</title>
               <style>
                 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;}
@@ -94,6 +95,12 @@ jobs:
             </body>
           </html>
           HTML
+
+          # robots.txt, um Suchmaschinen-Indexierung zu unterbinden
+          cat > site/robots.txt <<'ROBOTS'
+User-agent: *
+Disallow: /
+ROBOTS
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
