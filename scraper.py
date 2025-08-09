@@ -110,79 +110,158 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         ]
 
         # Fill username/password if present on this page
-        try:
-            page.wait_for_timeout(2000)
-            debug("Suche Login-Felder…")
-            filled_user = try_fill(page, user_selectors, username)
-            filled_pass = try_fill(page, pass_selectors, password)
-
-            if filled_user and filled_pass:
-                debug("Login-Felder gefüllt, klicke auf Anmelden…")
-                clicked = try_click(page, [
-                    "Anmelden", "Login", "Einloggen", "Anmeldung", "Sign in",
-                    'css=button[type="submit"]',
-                    'css=input[type="submit"]',
-                    'css=button:has-text("Anmelden")',
-                    'css=button:has-text("Login")',
-                ])
-                if not clicked:
-                    debug("Kein Login-Button gefunden, versuche Enter in Passwort-Feld…")
-                    try:
-                        page.locator(pass_selectors[0]).press("Enter")
-                    except Exception:
-                        pass
+        login_attempts = 0
+        max_login_attempts = 3
+        
+        while login_attempts < max_login_attempts:
+            try:
+                page.wait_for_timeout(3000)  # Länger warten für dynamische Inhalte
+                debug(f"Suche Login-Felder (Versuch {login_attempts + 1})…")
                 
-                # Wait for navigation post-login
-                debug("Warte auf Navigation nach Login…")
-                page.wait_for_load_state("networkidle", timeout=60_000)
-                debug(f"URL nach Login: {page.url}")
-            else:
-                debug("Kein klassisches Login-Formular gefunden; ggf. SSO/Weiterleitung…")
+                # Erweiterte Selektoren für verschiedene Login-Systeme
+                extended_user_selectors = user_selectors + [
+                    'input[name="login"]',
+                    'input[name="email"]',
+                    'input[id="username"]',
+                    'input[id="login"]',
+                    'input[id="email"]',
+                    'input[class*="user"]',
+                    'input[class*="login"]',
+                ]
+                
+                extended_pass_selectors = pass_selectors + [
+                    'input[id="password"]',
+                    'input[class*="pass"]',
+                ]
+                
+                filled_user = try_fill(page, extended_user_selectors, username)
+                filled_pass = try_fill(page, extended_pass_selectors, password)
 
-        except PlaywrightTimeoutError:
-            debug("Timeout beim Login-Versuch")
+                if filled_user and filled_pass:
+                    debug("Login-Felder gefüllt, klicke auf Anmelden…")
+                    clicked = try_click(page, [
+                        "Anmelden", "Login", "Einloggen", "Anmeldung", "Sign in", "Submit",
+                        'css=button[type="submit"]',
+                        'css=input[type="submit"]',
+                        'css=button:has-text("Anmelden")',
+                        'css=button:has-text("Login")',
+                        'css=button:has-text("Submit")',
+                        'css=button[class*="login"]',
+                        'css=button[class*="submit"]',
+                    ])
+                    if not clicked:
+                        debug("Kein Login-Button gefunden, versuche Enter in Passwort-Feld…")
+                        try:
+                            page.locator(extended_pass_selectors[0]).press("Enter")
+                        except Exception:
+                            pass
+                    
+                    # Wait for navigation post-login
+                    debug("Warte auf Navigation nach Login…")
+                    page.wait_for_load_state("networkidle", timeout=60_000)
+                    debug(f"URL nach Login: {page.url}")
+                    break  # Login successful
+                else:
+                    # Check if we're already logged in or if page changed
+                    current_html = page.content()
+                    if any(keyword in current_html.lower() for keyword in [
+                        "einsatz", "vorschau", "dienstplan", "schichtplan", "dashboard", "home"
+                    ]):
+                        debug("Scheint bereits eingeloggt zu sein oder Login nicht erforderlich")
+                        break
+                    
+                    debug("Kein Login-Formular gefunden, warte auf dynamische Inhalte…")
+                    login_attempts += 1
+                    if login_attempts < max_login_attempts:
+                        page.wait_for_timeout(2000)
+
+            except PlaywrightTimeoutError:
+                debug("Timeout beim Login-Versuch")
+                login_attempts += 1
 
         # Try to navigate/click to 'Einsatz-Vorschau'
         debug("Versuche zur Seite 'Einsatz-Vorschau' zu wechseln…")
         
-        # Look for navigation elements first
-        nav_clicked = try_click(page, [
-            "Einsatz-Vorschau", "Einsatz Vorschau", "Vorschau", "Einsatz",
-            "Schedule", "Schichtplan", "Dienstplan",
-        ])
+        # First, try to find existing navigation in the current page
+        nav_attempts = 0
+        max_nav_attempts = 3
         
-        if nav_clicked:
-            debug("Navigation-Element gefunden und geklickt")
-            page.wait_for_load_state("networkidle", timeout=30_000)
-            debug(f"URL nach Navigation: {page.url}")
-
-        # As a fallback, try to open likely paths within the app
-        possible_paths = [
-            "/einsatz-vorschau",
-            "/einsatz",
-            "/schedule", 
-            "/dienstplan",
-            "/schichtplan",
-            "/vorschau",
-        ]
-        
-        for path in possible_paths:
-            try:
-                test_url = base_url.rstrip('/') + path
-                debug(f"Teste direkten Pfad: {test_url}")
-                page.goto(test_url, wait_until="domcontentloaded", timeout=20_000)
+        while nav_attempts < max_nav_attempts:
+            # Look for navigation elements in current page
+            nav_clicked = try_click(page, [
+                "Einsatz-Vorschau", "Einsatz Vorschau", "Vorschau", "Einsatz",
+                "Schedule", "Schichtplan", "Dienstplan", "Kalender", "Termine",
+                'css=a[href*="einsatz"]',
+                'css=a[href*="vorschau"]',
+                'css=a[href*="schedule"]',
+                'css=a[href*="dienstplan"]',
+                'css=button[onclick*="einsatz"]',
+                'css=button[onclick*="vorschau"]',
+            ])
+            
+            if nav_clicked:
+                debug("Navigation-Element gefunden und geklickt")
+                page.wait_for_load_state("networkidle", timeout=30_000)
+                debug(f"URL nach Navigation: {page.url}")
+                
+                # Check if we now have a table
                 if contains_einsatz_table(page.content()):
-                    debug(f"Einsatz-Tabelle gefunden unter: {test_url}")
+                    debug("Einsatz-Tabelle nach Navigation gefunden!")
                     break
+            
+            # Try JavaScript navigation for single page apps
+            debug(f"Suche nach JS-Navigation (Versuch {nav_attempts + 1})…")
+            try:
+                # Try common SPA navigation patterns
+                page.evaluate("""
+                    // Try to find and click menu items
+                    const menuItems = document.querySelectorAll('a, button, span, div');
+                    for (let item of menuItems) {
+                        const text = item.innerText || item.textContent || '';
+                        if (text.match(/(einsatz|vorschau|schedule|dienstplan|kalender)/i)) {
+                            item.click();
+                            break;
+                        }
+                    }
+                """)
+                page.wait_for_timeout(2000)
+                page.wait_for_load_state("networkidle", timeout=10_000)
+                
+                if contains_einsatz_table(page.content()):
+                    debug("Einsatz-Tabelle nach JS-Navigation gefunden!")
+                    break
+                    
             except Exception as ex:
-                debug(f"Pfad {path} fehlgeschlagen: {ex}")
-                continue
+                debug(f"JS-Navigation fehlgeschlagen: {ex}")
+            
+            nav_attempts += 1
+            if nav_attempts < max_nav_attempts:
+                page.wait_for_timeout(3000)
 
-        # Wait for possible table to appear
+        # As a final fallback, check the current page thoroughly for any tables
+        debug("Prüfe aktuelle Seite auf alle vorhandenen Tabellen…")
+        current_html = page.content()
+        soup = BeautifulSoup(current_html, "lxml")
+        all_tables = soup.find_all("table")
+        
+        debug(f"Gefundene Tabellen: {len(all_tables)}")
+        for i, table in enumerate(all_tables):
+            # Get table text preview
+            table_text = table.get_text(" ", strip=True)[:200]
+            debug(f"Tabelle {i+1}: {table_text}...")
+            
+            # Check if this table might contain schedule data
+            if any(keyword in table_text.lower() for keyword in [
+                "datum", "uhrzeit", "zeit", "von", "bis", "einsatz", "adresse", 
+                "kunde", "patient", "termin", "arbeitszeit"
+            ]):
+                debug(f"Tabelle {i+1} könnte Einsatz-Daten enthalten!")
+
+        # Wait for possible dynamic table to appear
         try:
-            page.wait_for_timeout(2000)
-            # Heuristic wait: look for a table element with headers
-            page.wait_for_selector("table", timeout=15_000)
+            page.wait_for_timeout(3000)
+            # Look for any table element
+            page.wait_for_selector("table", timeout=10_000)
             debug("Tabelle gefunden, prüfe Inhalt…")
         except PlaywrightTimeoutError:
             debug("Kein table-Element gefunden")
