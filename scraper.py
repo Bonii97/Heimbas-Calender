@@ -282,9 +282,33 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                         except Exception:
                             pass
                     
-                    # Quick wait for login completion (no networkidle for legacy systems)
-                    debug("Login-Button geklickt - kurze Wartezeit…")
-                    page.wait_for_timeout(2000)  # Feste 2s statt networkidle
+                    # Smart polling: Wait for login success indicators
+                    debug("Login-Button geklickt - prüfe auf Erfolg…")
+                    login_success = False
+                    for attempt in range(10):  # Max 10s (10 * 1s)
+                        page.wait_for_timeout(1000)
+                        current_url = page.url
+                        current_html = page.content()
+                        
+                        # Login-Erfolg-Indikatoren
+                        success_indicators = [
+                            current_url != initial_url,  # URL hat sich geändert
+                            "anmeldung" not in current_html.lower(),  # Kein Login-Screen mehr
+                            "benutzer" not in current_html.lower() or "einsatz" in current_html.lower(),  # Entweder kein Login-Feld oder Einsatz-Inhalte
+                            "menu" in current_html.lower() or "navigation" in current_html.lower(),  # Menü erschienen
+                            contains_einsatz_table(current_html)  # Direkt zur Tabelle
+                        ]
+                        
+                        if any(success_indicators):
+                            debug(f"Login erfolgreich nach {attempt + 1}s - URL: {current_url}")
+                            login_success = True
+                            break
+                        
+                        debug(f"Login-Check {attempt + 1}/10 - warte weiter…")
+                    
+                    if not login_success:
+                        debug("Login-Erfolg nicht erkannt - setze trotzdem fort")
+                    
                     debug(f"URL nach Login: {page.url}")
                     
                     # Sofort nach Login: Prüfe auf vorhandene Tabellen
@@ -363,22 +387,39 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             if nav_clicked:
                 debug("Navigation-Element gefunden und geklickt")
                 try:
-                    # Warte kurz und schaue was passiert
-                    page.wait_for_timeout(3000)  # Feste Wartezeit statt Load-State
-                    debug(f"URL nach Navigation: {page.url}")
+                    # Smart polling: Wait for navigation success
+                    debug("Prüfe auf Navigation-Erfolg…")
+                    nav_success = False
                     
-                    # Detaillierte Analyse der Seite nach Navigation
+                    for attempt in range(8):  # Max 8s (8 * 1s)
+                        page.wait_for_timeout(1000)
+                        current_html = page.content()
+                        
+                        # Navigation-Erfolg-Indikatoren
+                        nav_indicators = [
+                            contains_einsatz_table(current_html),  # Ziel-Tabelle gefunden
+                            "einsatz-vorschau" in current_html.lower(),  # Seiten-Inhalt passt
+                            "datum" in current_html.lower() and "uhrzeit" in current_html.lower(),  # Tabellen-Header
+                            len(BeautifulSoup(current_html, "lxml").find_all("table")) > 0  # Mindestens eine Tabelle
+                        ]
+                        
+                        if any(nav_indicators):
+                            debug(f"Navigation erfolgreich nach {attempt + 1}s")
+                            nav_success = True
+                            break
+                        
+                        debug(f"Navigation-Check {attempt + 1}/8 - warte weiter…")
+                    
+                    # Detaillierte Analyse nach Navigation (erfolgreich oder nicht)
                     current_html = page.content()
                     soup = BeautifulSoup(current_html, "lxml")
+                    
+                    debug(f"URL nach Navigation: {page.url}")
                     
                     # Log page info for debugging
                     title = soup.find("title")
                     title_text = title.get_text(strip=True) if title else "Kein Titel"
-                    debug(f"Seitentitel nach Navigation: {title_text}")
-                    
-                    # Check all visible content
-                    body_text = soup.get_text(" ", strip=True)[:500]
-                    debug(f"Seiteninhalt (500 chars): {body_text}")
+                    debug(f"Seitentitel: {title_text}")
                     
                     # Prüfe sofort auf Tabellen
                     if contains_einsatz_table(current_html):
@@ -436,11 +477,25 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                 """)
                 
                 if result:
-                    debug("JavaScript-Navigation erfolgreich")
-                page.wait_for_timeout(2000)  # Feste 2s für legacy systems
+                    debug("JavaScript-Navigation durchgeführt")
                 
-                if contains_einsatz_table(page.content()):
-                    debug("Einsatz-Tabelle nach JS-Navigation gefunden!")
+                # Smart polling für JS-Navigation
+                js_success = False
+                for attempt in range(6):  # Max 6s
+                    page.wait_for_timeout(1000)
+                    current_html = page.content()
+                    
+                    if contains_einsatz_table(current_html):
+                        debug(f"Einsatz-Tabelle nach JS-Navigation gefunden! ({attempt + 1}s)")
+                        js_success = True
+                        break
+                    
+                    # Weitere Erfolgs-Indikatoren für JS-Navigation
+                    if ("datum" in current_html.lower() and "uhrzeit" in current_html.lower()) or \
+                       len(BeautifulSoup(current_html, "lxml").find_all("table")) > 0:
+                        debug(f"JS-Navigation Indikatoren erkannt nach {attempt + 1}s")
+                
+                if js_success:
                     break
                     
             except Exception as ex:
