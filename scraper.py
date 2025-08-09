@@ -506,6 +506,12 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             if nav_attempts < max_nav_attempts:
                 page.wait_for_timeout(3000)
 
+        # Stelle vor dem Auslesen sicher: Zeitraum = 6 Monate
+        try:
+            set_time_range_to_six_months(page)
+        except Exception as ex:
+            debug(f"Zeitraum-Auswahl '6 Monate' nicht bestätigt: {ex}")
+
         # As a final fallback, check the current page thoroughly for any tables
         debug("Prüfe aktuelle Seite auf alle vorhandenen Tabellen…")
         current_html = page.content()
@@ -726,6 +732,65 @@ def extract_duration_minutes(text: str) -> Optional[int]:
         return minutes
 
     return None
+
+
+def set_time_range_to_six_months(page) -> None:
+    """Wählt in der Heimbas-Oberfläche den Zeitraum '6 Monate' aus.
+
+    Vorgehen:
+    1) Suche das Dropdown/Select in der Nähe von 'Zeitraum'
+    2) Versuche per sichtbarem Text '6 Monate' auszuwählen
+    3) Führe intelligentes Polling durch, ob sich Tabelle erweitert/Content ändert
+    """
+    debug("Versuche Zeitraum '6 Monate' zu setzen…")
+
+    # Vorheriger Content-Snapshot
+    before_html = page.content()
+
+    # Versuche per Rollen-/Textauswahl (Playwright heuristics)
+    try:
+        # Mögliche Ansätze: select-Element, Button mit Dropdown, Text 'Zeitraum'
+        # 1) Direktes Select mit sichtbarem Namen
+        select_locators = [
+            page.get_by_label("Zeitraum", exact=False),
+            page.locator("select"),
+        ]
+        made_selection = False
+        for sel in select_locators:
+            if sel.count() > 0:
+                try:
+                    # versuche die Option '6 Monate' zu wählen
+                    sel.first.select_option(label="6 Monate")
+                    made_selection = True
+                    break
+                except Exception:
+                    # manche Oberflächen sind keine echten <select> Elemente
+                    pass
+
+        if not made_selection:
+            # 2) Klick-Pfade (Dropdown öffnen → '6 Monate' klicken)
+            try_click(page, [
+                'css=button:has-text("Zeitraum")',
+                'css=div:has-text("Zeitraum")',
+            ])
+            try_click(page, [
+                'css=li:has-text("6 Monate")',
+                'css=div[role="option"]:has-text("6 Monate")',
+                'css=button:has-text("6 Monate")',
+                '6 Monate',
+            ])
+
+        # Smart Polling: bis zu 8 Sekunden auf Änderungen warten
+        for attempt in range(8):
+            page.wait_for_timeout(1000)
+            after_html = page.content()
+            if len(after_html) != len(before_html):
+                debug(f"Zeitraum umgestellt (Änderung nach {attempt + 1}s erkannt)")
+                break
+        else:
+            debug("Keine erkennbare Änderung nach Zeitraum-Umstellung")
+    except Exception as ex:
+        debug(f"Fehler beim Setzen des Zeitraums: {ex}")
 
 def infer_description(cells: List[str]) -> str:
     """Heuristic to derive the most descriptive text from row cells."""
