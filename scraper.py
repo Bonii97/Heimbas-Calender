@@ -1,6 +1,8 @@
 import os
 import sys
 import re
+import json
+import argparse
 import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple, Dict, Any
@@ -320,6 +322,16 @@ def stable_uid(start_dt: datetime, end_dt: datetime, location: Optional[str], de
     return hasher.hexdigest() + "@heimbas-ics"
 
 
+def slugify_name(name: str) -> str:
+    """Create a filesystem/url friendly slug from the given name."""
+    # Lowercase, replace spaces with underscore, allow only a-z0-9_- characters
+    s = name.strip().lower().replace(" ", "_")
+    s = re.sub(r"[^a-z0-9_-]", "_", s)
+    # collapse multiple underscores
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "user"
+
+
 def build_ics(entries: List[Dict[str, Any]], output_path: str) -> None:
     """Create an ICS file from parsed entries."""
     cal = Calendar()
@@ -379,14 +391,85 @@ def build_ics(entries: List[Dict[str, Any]], output_path: str) -> None:
         f.write(cal.to_ical())
 
 
+def fetch_entries_for_user(base_url: str, username: str, password: str) -> List[Dict[str, Any]]:
+    html = login_and_get_einsatz_vorschau_html(base_url, username, password)
+    return parse_table_entries(html)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Heimbas Einsatz-Vorschau zu ICS")
+    parser.add_argument("--base-url", default="https://homecare.hbweb.myneva.cloud/apps/cg_homecare_1017",
+                        help="Basis-URL der Heimbas-Anwendung")
+    parser.add_argument("--user", dest="user", help="Benutzername (überschreibt HEIMBAS_USER)")
+    parser.add_argument("--pass", dest="password", help="Passwort (überschreibt HEIMBAS_PASS)")
+    parser.add_argument("--output", dest="output", default="dienstplan.ics", help="Ausgabepfad der ICS")
+    parser.add_argument("--users-json-path", dest="users_json_path",
+                        help="Pfad zu einer JSON-Datei mit mehreren Accounts [{name,user,pass}]")
+    return parser.parse_args()
+
+
 def main() -> None:
-    base_url = "https://homecare.hbweb.myneva.cloud/apps/cg_homecare_1017"
-    username, password = get_env_credentials()
+    args = parse_args()
+    base_url = args.base_url
+
+    # Multi-User-Modus: via Datei oder Umgebungsvariable USERS_JSON
+    users_json_text = None
+    if args.users_json_path and os.path.exists(args.users_json_path):
+        with open(args.users_json_path, "r", encoding="utf-8") as f:
+            users_json_text = f.read()
+    elif os.environ.get("USERS_JSON"):
+        users_json_text = os.environ["USERS_JSON"]
+
+    if users_json_text:
+        try:
+            users_list = json.loads(users_json_text)
+            if not isinstance(users_list, list):
+                raise ValueError("USERS_JSON ist kein Array.")
+        except Exception as ex:
+            print(f"Fehler beim Lesen von USERS_JSON: {ex}", file=sys.stderr)
+            sys.exit(2)
+
+        combined_entries: List[Dict[str, Any]] = []
+        any_success = False
+        for idx, entry in enumerate(users_list):
+            name_raw = str(entry.get("name") or f"user{idx+1}").strip()
+            name = slugify_name(name_raw)
+            u = str(entry.get("user") or "").strip()
+            p = str(entry.get("pass") or "").strip()
+            if not u or not p:
+                debug(f"Eintrag '{name_raw}' hat keine vollständigen Zugangsdaten – übersprungen.")
+                continue
+            try:
+                debug(f"Lese Einsätze für '{name_raw}' (Datei-Slug: '{name}')…")
+                user_entries = fetch_entries_for_user(base_url, u, p)
+                combined_entries.extend(user_entries)
+                # pro User eigene Datei
+                out_user_path = f"dienstplan_{name}.ics"
+                build_ics(user_entries, out_user_path)
+                any_success = True
+            except Exception as ex:
+                debug(f"Fehler für Benutzer '{name_raw}': {ex}")
+                continue
+
+        if not any_success:
+            print("Fehler: Konnte für keinen Benutzer Einsätze erzeugen.", file=sys.stderr)
+            sys.exit(1)
+
+        # Kombinierte Datei
+        if combined_entries:
+            build_ics(combined_entries, args.output)
+        return
+
+    # Single-User-Modus
+    username = args.user or os.environ.get("HEIMBAS_USER", "").strip()
+    password = args.password or os.environ.get("HEIMBAS_PASS", "").strip()
+    if not username or not password:
+        print("Fehler: Zugangsdaten fehlen (Argumente oder Umgebungsvariablen).", file=sys.stderr)
+        sys.exit(2)
 
     try:
-        html = login_and_get_einsatz_vorschau_html(base_url, username, password)
-        entries = parse_table_entries(html)
-        build_ics(entries, "dienstplan.ics")
+        entries = fetch_entries_for_user(base_url, username, password)
+        build_ics(entries, args.output)
     except RuntimeError as e:
         print(f"Fehler: {e}", file=sys.stderr)
         sys.exit(1)
