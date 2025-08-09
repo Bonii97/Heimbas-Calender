@@ -335,29 +335,29 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         max_nav_attempts = 2  # Reduziert von 3 auf 2
         
         while nav_attempts < max_nav_attempts:
-            # Look for navigation elements in current page - Heimbas-specific
+            # Look for navigation elements in current page - basierend auf Screenshots
             nav_clicked = try_click(page, [
-                # Exact text match from screenshot
+                # Exact text match from screenshot (linkes Menü, zweiter Eintrag)
                 "Einsatz-Vorschau",
-                # Heimbas-specific selectors
+                # Priorität auf linkes Menü-Element (Screenshot zeigt Menü-Navigation)
+                'css=td:has-text("Einsatz-Vorschau")',  # Table-basierte Navigation (häufig in alten Systems)
+                'css=div:has-text("Einsatz-Vorschau")',
+                'css=span:has-text("Einsatz-Vorschau")',
+                'css=a:has-text("Einsatz-Vorschau")',
+                # Menü-basierte Selektoren
+                'css=.menu td:has-text("Einsatz-Vorschau")',
+                'css=.navigation td:has-text("Einsatz-Vorschau")',
+                'css=table td:has-text("Einsatz-Vorschau")',
+                # Heimbas-specific selectors (falls framework-spezifisch)
                 'css=div.HMBListBoxContent:has-text("Einsatz-Vorschau")',
-                'css=div.HMBListBoxContent',
                 'css=div[class*="HMBListBox"]:has-text("Einsatz-Vorschau")',
-                'css=div[class*="HMBListBox"]:has-text("Vorschau")',
-                # Generic selectors as fallback
+                # Generic fallbacks
                 "Einsatz Vorschau", "Vorschau", "Einsatz",
-                "Schedule", "Schichtplan", "Dienstplan", "Kalender", "Termine",
                 # Link/button selectors
                 'css=a[href*="einsatz"]',
                 'css=a[href*="vorschau"]',
-                'css=a[href*="schedule"]',
-                'css=a[href*="dienstplan"]',
                 'css=button[onclick*="einsatz"]',
                 'css=button[onclick*="vorschau"]',
-                # Additional BBj/Heimbas selectors
-                'css=td:has-text("Einsatz-Vorschau")',
-                'css=span:has-text("Einsatz-Vorschau")',
-                'css=div:has-text("Einsatz-Vorschau")',
             ])
             
             if nav_clicked:
@@ -525,9 +525,28 @@ def contains_einsatz_table(html: str) -> bool:
     for table in soup.find_all("table"):
         header_text = " ".join(th.get_text(strip=True) for th in table.find_all(["th", "td"]))
         header_text_lower = header_text.lower()
-        if any(keyword in header_text_lower for keyword in [
-            "datum", "einsatz", "uhrzeit", "von", "bis", "beschreibung", "adresse"
-        ]):
+        
+        # Keywords basierend auf Screenshot der finalen Tabelle
+        einsatz_keywords = [
+            "datum", "einsatz", "training", "uhrzeit", "uhrzeitvon", "von", "bis", "dauer",
+            "beschreibung", "adresse",
+            # Spezifische Inhalte aus Screenshot
+            "kohle", "martin", "feger", "nicole", "berger", "ricarda",
+            "hochfellstraße", "hochriesstraße", "sommerlandstraße",
+            "apvoll", "kpstd", "pbstd", "hhstd", "anfahrtspauschale",
+            # Wochentage (kurz)
+            "mo", "di", "mi", "do", "fr", "sa", "so"
+        ]
+        
+        # Prüfe ob mindestens 2 Keywords gefunden werden
+        found_count = sum(1 for kw in einsatz_keywords if kw in header_text_lower)
+        if found_count >= 2:
+            return True
+            
+        # Spezielle Kombinationen für Einsatz-Vorschau
+        if "datum" in header_text_lower and ("einsatz" in header_text_lower or "training" in header_text_lower):
+            return True
+        if "von" in header_text_lower and "bis" in header_text_lower and "dauer" in header_text_lower:
             return True
     return False
 
