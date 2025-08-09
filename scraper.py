@@ -265,14 +265,29 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                     
                     # Wait for navigation post-login
                     debug("Warte auf Navigation nach Login…")
-                    page.wait_for_load_state("networkidle", timeout=60_000)
+                    page.wait_for_load_state("networkidle", timeout=30_000)  # Verkürzt
                     debug(f"URL nach Login: {page.url}")
+                    
+                    # Sofort nach Login: Prüfe auf vorhandene Tabellen
+                    debug("Prüfe Seite direkt nach Login auf Einsatz-Tabellen…")
+                    if contains_einsatz_table(page.content()):
+                        debug("Einsatz-Tabelle bereits auf Login-Zielseite gefunden!")
+                        return page.content()  # Direkt zurückgeben, keine Navigation nötig
+                    
                     break  # Login successful
                 else:
                     # Check if we're already logged in or if page changed
                     current_html = page.content()
+                    debug("Prüfe aktuelle Seite auf Login-Status und Tabellen…")
+                    
+                    # Prüfe zuerst auf Einsatz-Tabellen
+                    if contains_einsatz_table(current_html):
+                        debug("Einsatz-Tabelle bereits ohne Login gefunden!")
+                        return current_html
+                    
+                    # Dann prüfe auf Login-Status
                     if any(keyword in current_html.lower() for keyword in [
-                        "einsatz", "vorschau", "dienstplan", "schichtplan", "dashboard", "home"
+                        "einsatz", "vorschau", "dienstplan", "schichtplan", "dashboard", "home", "nachrichten"
                     ]):
                         debug("Scheint bereits eingeloggt zu sein oder Login nicht erforderlich")
                         break
@@ -286,12 +301,19 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                 debug("Timeout beim Login-Versuch")
                 login_attempts += 1
 
+        # Vor Navigation: Prüfe nochmals den aktuellen Seiteninhalt
+        debug("Prüfe Seiteninhalt vor Navigation…")
+        current_html = page.content()
+        if contains_einsatz_table(current_html):
+            debug("Einsatz-Tabelle bereits vor Navigation gefunden!")
+            return current_html
+        
         # Try to navigate/click to 'Einsatz-Vorschau'
         debug("Versuche zur Seite 'Einsatz-Vorschau' zu wechseln…")
         
         # First, try to find existing navigation in the current page
         nav_attempts = 0
-        max_nav_attempts = 3
+        max_nav_attempts = 2  # Reduziert von 3 auf 2
         
         while nav_attempts < max_nav_attempts:
             # Look for navigation elements in current page - Heimbas-specific
@@ -321,7 +343,7 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             
             if nav_clicked:
                 debug("Navigation-Element gefunden und geklickt")
-                page.wait_for_load_state("networkidle", timeout=30_000)
+                page.wait_for_load_state("networkidle", timeout=15_000)  # Verkürzt
                 debug(f"URL nach Navigation: {page.url}")
                 
                 # Check if we now have a table
@@ -368,8 +390,8 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                 
                 if result:
                     debug("JavaScript-Navigation erfolgreich")
-                page.wait_for_timeout(2000)
-                page.wait_for_load_state("networkidle", timeout=10_000)
+                page.wait_for_timeout(1000)  # Verkürzt
+                page.wait_for_load_state("networkidle", timeout=8_000)  # Verkürzt
                 
                 if contains_einsatz_table(page.content()):
                     debug("Einsatz-Tabelle nach JS-Navigation gefunden!")
