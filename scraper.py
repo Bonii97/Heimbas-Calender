@@ -726,16 +726,18 @@ def extract_date(text: str) -> Optional[str]:
 
 def extract_time_range(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract time range like '08:00 - 09:30' or 'von 8:00 bis 9:30'."""
+    # Accept HH:MM or HH.MM
+    time_pat = r"\d{1,2}[:\.]\d{2}"
     # Pattern with dash
-    m = re.search(r"(\d{1,2}:\d{2})\s*[–\-]\s*(\d{1,2}:\d{2})", text)
+    m = re.search(rf"({time_pat})\s*[–\-]\s*({time_pat})", text)
     if m:
         return m.group(1), m.group(2)
     # Pattern with 'von ... bis ...'
-    m = re.search(r"von\s*(\d{1,2}:\d{2})\s*bis\s*(\d{1,2}:\d{2})", text, re.I)
+    m = re.search(rf"von\s*({time_pat})\s*bis\s*({time_pat})", text, re.I)
     if m:
         return m.group(1), m.group(2)
     # Single time (fallback)
-    m = re.search(r"(\d{1,2}:\d{2})", text)
+    m = re.search(rf"({time_pat})", text)
     if m:
         return m.group(1), None
     return None, None
@@ -756,12 +758,16 @@ def extract_duration_minutes(text: str) -> Optional[int]:
     if m:
         return int(m.group(1))
 
-    # Stunden-Angaben wie 2,0 oder 2.5 oder 2 Std.
-    m = re.search(r"(\d{1,2})([\.,](\d))?\s*(h|std|stunde|stunden)?\b", t)
+    # Stunden-Angaben wie 2,0 / 2,00 / 2.5 / 2 Std.
+    m = re.search(r"(\d{1,2})([\.,](\d{1,2}))?\s*(h|std|stunde|stunden)?\b", t)
     if m:
         hours = int(m.group(1))
-        frac = m.group(3)
-        minutes = hours * 60 + (int(frac) * 6 if frac else 0)
+        frac_str = m.group(3)
+        if frac_str is None:
+            return hours * 60
+        # 1 oder 2 Dezimalstellen → in Minuten umrechnen
+        base = 10 if len(frac_str) == 1 else 100
+        minutes = hours * 60 + int(round((int(frac_str) / base) * 60))
         return minutes
 
     return None
@@ -878,7 +884,8 @@ def parse_german_date(date_str: str) -> datetime:
 
 def parse_time(time_str: str) -> Tuple[int, int]:
     """Parse HH:MM -> (hour, minute)."""
-    hour, minute = time_str.split(":")
+    sep = ":" if ":" in time_str else "."
+    hour, minute = time_str.split(sep)
     return int(hour), int(minute)
 
 
