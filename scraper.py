@@ -357,19 +357,12 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
         navigate_to_einsatz_vorschau(page)
 
         # Stelle vor dem Auslesen sicher: Zeitraum = 6 Monate (auch in Frames)
+        # Exakt in dem Dokument/Frame setzen, wo die Tabelle liegt
+        target_doc = find_frame_with_einsatz_table(page) or page
         try:
-            # erst im Hauptdokument versuchen (kurz)
-            set_time_range_to_six_months(page)
+            set_time_range_to_six_months(target_doc)
         except Exception:
             pass
-        # schnell die Frames prüfen, ohne lange zu warten
-        for frm in page.frames:
-            if frm == page.main_frame:
-                continue
-            try:
-                set_time_range_to_six_months(frm)
-            except Exception:
-                continue
 
         # As a final fallback, check the current page AND frames thoroughly for any tables
         debug("Prüfe aktuelle Seite auf alle vorhandenen Tabellen…")
@@ -489,6 +482,30 @@ def contains_einsatz_table(html: str) -> bool:
         if "von" in header_text_lower and "bis" in header_text_lower and "dauer" in header_text_lower:
             return True
     return False
+
+
+def find_frame_with_einsatz_table(page) -> Optional[Any]:
+    """Finde das Dokument/Frame, das die Einsatz-Tabelle enthält.
+
+    Gibt das passende Frame/Page-Objekt zurück oder None.
+    """
+    try:
+        # Hauptdokument zuerst prüfen
+        if contains_einsatz_table(page.content()):
+            return page
+    except Exception:
+        pass
+    # Danach Frames prüfen
+    try:
+        for frm in page.frames:
+            try:
+                if contains_einsatz_table(frm.content()):
+                    return frm
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
 
 
 def parse_table_entries(html: str) -> List[Dict[str, Any]]:
@@ -629,6 +646,20 @@ def set_time_range_to_six_months(page) -> None:
     3) Führe intelligentes Polling durch, ob sich Tabelle erweitert/Content ändert
     """
     debug("Versuche Zeitraum '6 Monate' zu setzen…")
+
+    # Wenn bereits aktiv, überspringen
+    try:
+        current_label = page.evaluate("""
+            (() => {
+                const el = document.querySelector('div.basis-button-face');
+                return el ? (el.innerText||'').trim() : '';
+            })()
+        """)
+        if isinstance(current_label, str) and re.search(r"6\s*Monat", current_label, re.I):
+            debug("Zeitraum bereits auf '6 Monate' gesetzt – übersprungen")
+            return
+    except Exception:
+        pass
 
     # Vorheriger Content-Snapshot
     before_html = page.content()
