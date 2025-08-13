@@ -46,7 +46,7 @@ jobs:
           # Unterstütze sowohl Secret als auch Repository Variable
           USERS_JSON: ${{ secrets.USERS_JSON || vars.USERS_JSON }}
         run: |
-          set -euo pipefail
+          set -eu
           if [ -n "${USERS_JSON:-}" ]; then
             echo "USERS_JSON erkannt – Multi-User-Run"
             # Nur LÄNGE loggen, nie den Inhalt
@@ -117,7 +117,7 @@ jobs:
         env:
           PAGES_URL: https://bonii97.github.io/Heimbas-Calender/index.ics
         run: |
-          set -euo pipefail
+          set -eu
           if [ ! -f site/index.ics ]; then
             echo "should_deploy=true" >> "$GITHUB_OUTPUT"
             exit 0
