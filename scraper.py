@@ -91,29 +91,29 @@ def try_fill(page, selectors: List[str], value: str) -> bool:
     return False
 
 
-def try_click(page, selectors_or_text: List[str]) -> bool:
+def try_click(page, selectors_or_text: List[str], timeout_ms: int = 1200) -> bool:
     """Try to click either css/xpath selectors or buttons/links by text."""
     for sel in selectors_or_text:
         try:
             if sel.startswith("css="):
-                page.locator(sel[len("css="):]).first.click()
+                page.locator(sel[len("css="):]).first.click(timeout=timeout_ms)
                 return True
             if sel.startswith("xpath="):
-                page.locator(sel).first.click()
+                page.locator(sel).first.click(timeout=timeout_ms)
                 return True
             # Fallback: try get_by_role or get_by_text
             btn = page.get_by_role("button", name=re.compile(sel, re.I))
             if btn.count() > 0:
-                btn.first.click()
+                btn.first.click(timeout=timeout_ms)
                 return True
             link = page.get_by_role("link", name=re.compile(sel, re.I))
             if link.count() > 0:
-                link.first.click()
+                link.first.click(timeout=timeout_ms)
                 return True
             # Try visible text anywhere
             el = page.get_by_text(re.compile(sel, re.I))
             if el.count() > 0:
-                el.first.click()
+                el.first.click(timeout=timeout_ms)
                 return True
         except Exception:
             continue
@@ -352,177 +352,24 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             debug("Einsatz-Tabelle bereits vor Navigation gefunden!")
             return current_html
         
-        # Try to navigate/click to 'Einsatz-Vorschau'
+        # Schnelle, deterministische Navigation zur Einsatz-Vorschau
         debug("Versuche zur Seite 'Einsatz-Vorschau' zu wechseln…")
-        
-        # First, try to find existing navigation in the current page
-        nav_attempts = 0
-        max_nav_attempts = 2  # Reduziert von 3 auf 2
-        
-        while nav_attempts < max_nav_attempts:
-            # Look for navigation elements in current page - basierend auf Screenshots
-            nav_clicked = try_click(page, [
-                # Exact text match from screenshot (linkes Menü, zweiter Eintrag)
-                "Einsatz-Vorschau",
-                # Priorität auf linkes Menü-Element (Screenshot zeigt Menü-Navigation)
-                'css=td:has-text("Einsatz-Vorschau")',  # Table-basierte Navigation (häufig in alten Systems)
-                'css=div:has-text("Einsatz-Vorschau")',
-                'css=span:has-text("Einsatz-Vorschau")',
-                'css=a:has-text("Einsatz-Vorschau")',
-                # Menü-basierte Selektoren
-                'css=.menu td:has-text("Einsatz-Vorschau")',
-                'css=.navigation td:has-text("Einsatz-Vorschau")',
-                'css=table td:has-text("Einsatz-Vorschau")',
-                # Heimbas-specific selectors (falls framework-spezifisch)
-                'css=div.HMBListBoxContent:has-text("Einsatz-Vorschau")',
-                'css=div[class*="HMBListBox"]:has-text("Einsatz-Vorschau")',
-                # Generic fallbacks
-                "Einsatz Vorschau", "Vorschau", "Einsatz",
-                # Link/button selectors
-                'css=a[href*="einsatz"]',
-                'css=a[href*="vorschau"]',
-                'css=button[onclick*="einsatz"]',
-                'css=button[onclick*="vorschau"]',
-            ])
-            
-            if nav_clicked:
-                debug("Navigation-Element gefunden und geklickt")
-                try:
-                    # Smart polling: Wait for navigation success
-                    debug("Prüfe auf Navigation-Erfolg…")
-                    nav_success = False
-                    
-                    for attempt in range(8):  # Max 8s (8 * 1s)
-                        page.wait_for_timeout(1000)
-                        current_html = page.content()
-                        
-                        # Navigation-Erfolg-Indikatoren
-                        nav_indicators = [
-                            contains_einsatz_table(current_html),  # Ziel-Tabelle gefunden
-                            "einsatz-vorschau" in current_html.lower(),  # Seiten-Inhalt passt
-                            "datum" in current_html.lower() and "uhrzeit" in current_html.lower(),  # Tabellen-Header
-                            len(BeautifulSoup(current_html, "lxml").find_all("table")) > 0  # Mindestens eine Tabelle
-                        ]
-                        
-                        if any(nav_indicators):
-                            debug(f"Navigation erfolgreich nach {attempt + 1}s")
-                            nav_success = True
-                            break
-                        
-                        debug(f"Navigation-Check {attempt + 1}/8 - warte weiter…")
-                    
-                    # Detaillierte Analyse nach Navigation (erfolgreich oder nicht)
-                    current_html = page.content()
-                    soup = BeautifulSoup(current_html, "lxml")
-                    
-                    debug(f"URL nach Navigation: {page.url}")
-                    
-                    # Log page info for debugging
-                    title = soup.find("title")
-                    title_text = title.get_text(strip=True) if title else "Kein Titel"
-                    debug(f"Seitentitel: {title_text}")
-                    
-                    # Prüfe sofort auf Tabellen
-                    if contains_einsatz_table(current_html):
-                        debug("Einsatz-Tabelle nach Navigation gefunden!")
-                        break
-                    
-                    # Check if the navigation actually changed something
-                    all_tables = soup.find_all("table")
-                    debug(f"Tabellen nach Navigation: {len(all_tables)}")
-                    
-                    if len(all_tables) > 0:
-                        for i, table in enumerate(all_tables):
-                            table_preview = table.get_text(" ", strip=True)[:150]
-                            debug(f"Tabelle {i+1} nach Navigation: {table_preview}")
-                    
-                except Exception as ex:
-                    debug(f"Navigation-Fehler: {ex}")
-                    # Continue anyway
-            
-            # Try JavaScript navigation for single page apps
-            debug(f"Suche nach JS-Navigation (Versuch {nav_attempts + 1})…")
-            try:
-                # Try Heimbas-specific JavaScript navigation
-                result = page.evaluate("""
-                    (function() {
-                        // Try exact match first
-                        let found = false;
-                        const elements = document.querySelectorAll('div.HMBListBoxContent, div[class*="HMBListBox"], td, span, div, a');
-                        
-                        for (let item of elements) {
-                            const text = (item.innerText || item.textContent || '').trim();
-                            if (text === 'Einsatz-Vorschau') {
-                                console.log('Found exact match:', item);
-                                item.click();
-                                found = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!found) {
-                            // Fallback: partial match
-                            for (let item of elements) {
-                                const text = (item.innerText || item.textContent || '').trim();
-                                if (text.match(/(einsatz.*vorschau|vorschau.*einsatz)/i)) {
-                                    console.log('Found partial match:', item);
-                                    item.click();
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        return found;
-                    })()
-                """)
-                
-                if result:
-                    debug("JavaScript-Navigation durchgeführt")
-                
-                # Smart polling für JS-Navigation
-                js_success = False
-                for attempt in range(6):  # Max 6s
-                    page.wait_for_timeout(1000)
-                    current_html = page.content()
-                    
-                    if contains_einsatz_table(current_html):
-                        debug(f"Einsatz-Tabelle nach JS-Navigation gefunden! ({attempt + 1}s)")
-                        js_success = True
-                        break
-                    
-                    # Weitere Erfolgs-Indikatoren für JS-Navigation
-                    if ("datum" in current_html.lower() and "uhrzeit" in current_html.lower()) or \
-                       len(BeautifulSoup(current_html, "lxml").find_all("table")) > 0:
-                        debug(f"JS-Navigation Indikatoren erkannt nach {attempt + 1}s")
-                
-                if js_success:
-                    break
-                    
-            except Exception as ex:
-                debug(f"JS-Navigation fehlgeschlagen: {ex}")
-            
-            nav_attempts += 1
-            if nav_attempts < max_nav_attempts:
-                page.wait_for_timeout(3000)
+        navigate_to_einsatz_vorschau(page)
 
         # Stelle vor dem Auslesen sicher: Zeitraum = 6 Monate (auch in Frames)
         try:
-            # erst im Hauptdokument versuchen
+            # erst im Hauptdokument versuchen (kurz)
             set_time_range_to_six_months(page)
-        except Exception as ex:
-            debug(f"Zeitraum im Hauptdokument nicht gesetzt: {ex}")
-        try:
-            # dann in allen Frames versuchen
-            for frm in page.frames:
-                if frm == page.main_frame:
-                    continue
-                try:
-                    set_time_range_to_six_months(frm)
-                except Exception:
-                    continue
-        except Exception as ex:
-            debug(f"Frame-Iteration für Zeitraum-Setzen fehlgeschlagen: {ex}")
+        except Exception:
+            pass
+        # schnell die Frames prüfen, ohne lange zu warten
+        for frm in page.frames:
+            if frm == page.main_frame:
+                continue
+            try:
+                set_time_range_to_six_months(frm)
+            except Exception:
+                continue
 
         # As a final fallback, check the current page AND frames thoroughly for any tables
         debug("Prüfe aktuelle Seite auf alle vorhandenen Tabellen…")
@@ -809,34 +656,95 @@ def set_time_range_to_six_months(page) -> None:
         if not made_selection:
             # 2) Klick-Pfade (Dropdown öffnen → '6 Monate' klicken)
             # Besonderheit Heimbas: zuerst auf aktuellen Wert (z. B. '7 Tage') klicken
-            try_click(page, [
+            clicked_7 = try_click(page, [
+                'css=div.basis-button-face:has-text("7 Tage")',
                 '7 Tage',
                 'css=button:has-text("7 Tage")',
                 'css=div:has-text("7 Tage")',
                 'css=span:has-text("7 Tage")',
             ])
+            # Wenn '7 Tage' nicht geklickt werden konnte, Dropdown direkt öffnen
+            if not clicked_7:
+                try_click(page, [
+                    'css=button:has-text("Zeitraum")',
+                    'css=div:has-text("Zeitraum")',
+                    'css=[role="button"]:has-text("Zeitraum")',
+                ], timeout_ms=800)
+
+            # Jetzt gezielt '6 Monate' mit kurzen Timeouts versuchen
             try_click(page, [
                 'css=button:has-text("Zeitraum")',
                 'css=div:has-text("Zeitraum")',
-            ])
-            try_click(page, [
+            ], timeout_ms=800)
+            selected_6 = try_click(page, [
+                'css=div.HMBListBoxItem.HMBNavButton.mynevaListBoxItemBorderLeft.mynevaListBoxItemBorderRight:has-text("6 Monate")',
                 'css=li:has-text("6 Monate")',
                 'css=div[role="option"]:has-text("6 Monate")',
                 'css=button:has-text("6 Monate")',
                 '6 Monate',
-            ])
+            ], timeout_ms=800)
+            if not selected_6:
+                debug("Option '6 Monate' nicht gefunden – Abbruch der Auswahlsequenz")
+                return
 
         # Smart Polling: bis zu 8 Sekunden auf Änderungen warten
-        for attempt in range(8):
+        # Max 4 Sekunden Polling – keine langen Hänger
+        for attempt in range(4):
             page.wait_for_timeout(1000)
             after_html = page.content()
             if len(after_html) != len(before_html):
                 debug(f"Zeitraum umgestellt (Änderung nach {attempt + 1}s erkannt)")
                 break
         else:
-            debug("Keine erkennbare Änderung nach Zeitraum-Umstellung")
+            debug("Keine erkennbare Änderung nach Zeitraum-Umstellung – fahre fort")
     except Exception as ex:
         debug(f"Fehler beim Setzen des Zeitraums: {ex}")
+
+
+def navigate_to_einsatz_vorschau(page) -> None:
+    """Schnell und deterministisch zum Menüpunkt 'Einsatz-Vorschau' navigieren.
+
+    Strategie:
+    1) Klick per starken CSS-Selektoren mit kurzen Timeouts
+    2) Falls nötig: Fallback per JS (querySelectorAll + exact match)
+    3) Kurzes Polling (max. 4s) auf Tabellen/Schlüsselbegriffe
+    """
+    # 1) Direkte Klicks mit kurzen Timeouts
+    if try_click(page, [
+        'css=td:has-text("Einsatz-Vorschau")',
+        'css=.HMBListBoxContent:has-text("Einsatz-Vorschau")',
+        'css=div:has-text("Einsatz-Vorschau")',
+        'css=span:has-text("Einsatz-Vorschau")',
+        'css=a:has-text("Einsatz-Vorschau")',
+        'Einsatz-Vorschau'
+    ], timeout_ms=800):
+        pass
+    else:
+        # 2) Fallback per JS
+        try:
+            result = page.evaluate("""
+                (function() {
+                    const els = document.querySelectorAll('td,div,span,a');
+                    for (const el of els) {
+                        const t = (el.innerText||'').trim();
+                        if (t === 'Einsatz-Vorschau') { el.click(); return true; }
+                    }
+                    return false;
+                })()
+            """)
+            if not result:
+                debug("JS-Navigation auf 'Einsatz-Vorschau' nicht erfolgreich")
+        except Exception as ex:
+            debug(f"JS-Navigation Fehler: {ex}")
+
+    # 3) kurzes Polling auf Navigationserfolg (max. 4s)
+    for i in range(4):
+        page.wait_for_timeout(1000)
+        html = page.content()
+        if contains_einsatz_table(html) or re.search(r"\b(einsatz|vorschau)\b", html, re.I):
+            debug(f"Navigation erkannt nach {i+1}s")
+            return
+    debug("Navigation auf 'Einsatz-Vorschau' nicht sicher erkannt – fahre fort")
 
 def infer_description(cells: List[str]) -> str:
     """Heuristic to derive the most descriptive text from row cells."""
@@ -1065,5 +973,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
