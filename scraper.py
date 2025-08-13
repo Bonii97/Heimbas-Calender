@@ -726,8 +726,8 @@ def extract_date(text: str) -> Optional[str]:
 
 def extract_time_range(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract time range like '08:00 - 09:30' or 'von 8:00 bis 9:30'."""
-    # Accept HH:MM or HH.MM
-    time_pat = r"\d{1,2}[:\.]\d{2}"
+    # Accept HH:MM or HH.MM (leading/trailing spaces tolerated)
+    time_pat = r"\b\d{1,2}[:\.]\d{2}\b"
     # Pattern with dash
     m = re.search(rf"({time_pat})\s*[–\-]\s*({time_pat})", text)
     if m:
@@ -932,12 +932,10 @@ def build_ics(entries: List[Dict[str, Any]], output_path: str) -> None:
                 start_h, start_m, tzinfo=BERLIN_TZ
             )
 
-            # falls explizite Dauer vorhanden, Vorrang vor Endzeit
+            # Priorität: wenn eine Endzeit angegeben ist, verwende sie; sonst Dauer
             explicit_duration_min: Optional[int] = e.get("duration_minutes")  # type: ignore[assignment]
 
-            if explicit_duration_min is not None and explicit_duration_min > 0:
-                end_dt = start_dt + timedelta(minutes=explicit_duration_min)
-            elif e.get("end_time"):
+            if e.get("end_time"):
                 end_h, end_m = parse_time(e["end_time"])  # type: ignore[arg-type]
                 end_dt = datetime(
                     date_naive.year, date_naive.month, date_naive.day,
@@ -946,6 +944,8 @@ def build_ics(entries: List[Dict[str, Any]], output_path: str) -> None:
                 # Prevent inverted ranges
                 if end_dt <= start_dt:
                     end_dt = start_dt + timedelta(minutes=30)
+            elif explicit_duration_min is not None and explicit_duration_min > 0:
+                end_dt = start_dt + timedelta(minutes=explicit_duration_min)
             else:
                 # Default duration 60 minutes if no end time
                 end_dt = start_dt + timedelta(minutes=60)
