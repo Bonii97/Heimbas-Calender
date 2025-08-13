@@ -39,6 +39,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run scraper (single or multi user)
+        shell: bash
         env:
           HEIMBAS_USER: ${{ secrets.HEIMBAS_USER }}
           HEIMBAS_PASS: ${{ secrets.HEIMBAS_PASS }}
@@ -111,6 +112,7 @@ jobs:
           echo "Disallow: /" >> site/robots.txt
 
       - name: Check if content changed
+        shell: bash
         id: check
         env:
           PAGES_URL: https://bonii97.github.io/Heimbas-Calender/index.ics
