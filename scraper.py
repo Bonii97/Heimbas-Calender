@@ -506,13 +506,25 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
             if nav_attempts < max_nav_attempts:
                 page.wait_for_timeout(3000)
 
-        # Stelle vor dem Auslesen sicher: Zeitraum = 6 Monate
+        # Stelle vor dem Auslesen sicher: Zeitraum = 6 Monate (auch in Frames)
         try:
+            # erst im Hauptdokument versuchen
             set_time_range_to_six_months(page)
         except Exception as ex:
-            debug(f"Zeitraum-Auswahl '6 Monate' nicht bestätigt: {ex}")
+            debug(f"Zeitraum im Hauptdokument nicht gesetzt: {ex}")
+        try:
+            # dann in allen Frames versuchen
+            for frm in page.frames:
+                if frm == page.main_frame:
+                    continue
+                try:
+                    set_time_range_to_six_months(frm)
+                except Exception:
+                    continue
+        except Exception as ex:
+            debug(f"Frame-Iteration für Zeitraum-Setzen fehlgeschlagen: {ex}")
 
-        # As a final fallback, check the current page thoroughly for any tables
+        # As a final fallback, check the current page AND frames thoroughly for any tables
         debug("Prüfe aktuelle Seite auf alle vorhandenen Tabellen…")
         current_html = page.content()
         soup = BeautifulSoup(current_html, "lxml")
@@ -530,6 +542,27 @@ def login_and_get_einsatz_vorschau_html(base_url: str, username: str, password: 
                 "kunde", "patient", "termin", "arbeitszeit"
             ]):
                 debug(f"Tabelle {i+1} könnte Einsatz-Daten enthalten!")
+
+        # Zusätzlich: In Frames nach Tabellen suchen
+        for frm in page.frames:
+            if frm == page.main_frame:
+                continue
+            try:
+                frm_html = frm.content()
+                frm_soup = BeautifulSoup(frm_html, "lxml")
+                frm_tables = frm_soup.find_all("table")
+                debug(f"Frame {getattr(frm, 'url', lambda: 'n/a')() if hasattr(frm, 'url') else 'n/a'}: {len(frm_tables)} Tabellen")
+                if frm_tables:
+                    # Nutze den Frame-HTML, wenn Tabelle plausibel aussieht
+                    if contains_einsatz_table(frm_html):
+                        debug("Plausible Einsatz-Tabelle im Frame gefunden – verwende Frame-HTML")
+                        current_html = frm_html
+                        final_html = frm_html
+                        soup = frm_soup
+                        all_tables = frm_tables
+                        break
+            except Exception:
+                continue
 
         # Final fallback: Check current page content regardless of navigation success
         debug("Finale Prüfung der aktuellen Seite...")
