@@ -589,19 +589,25 @@ def extract_date(text: str) -> Optional[str]:
 
 
 def extract_time_range(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract time range like '08:00 - 09:30' or 'von 8:00 bis 9:30'."""
-    # Accept HH:MM or HH.MM (leading/trailing spaces tolerated)
+    """Extract time range like '08:00 - 09:30' or 'von 8:00 bis 9:30'.
+
+    Vor der Zeitsuche werden Datumsteile (dd.mm.yyyy|yy) entfernt, um Fehl-Treffer
+    wie '13.08' aus '13.08.25' zu vermeiden.
+    """
+    # Datumsteile entfernen
+    sanitized = re.sub(r"\b\d{1,2}\.\d{1,2}\.(?:\d{2}|\d{4})\b", " ", text)
+    # Zeitformat HH:MM oder HH.MM
     time_pat = r"\b\d{1,2}[:\.]\d{2}\b"
-    # Pattern with dash
-    m = re.search(rf"({time_pat})\s*[–\-]\s*({time_pat})", text)
+    # Pattern mit Gedankenstrich
+    m = re.search(rf"({time_pat})\s*[–\-]\s*({time_pat})", sanitized)
     if m:
         return m.group(1), m.group(2)
-    # Pattern with 'von ... bis ...'
-    m = re.search(rf"von\s*({time_pat})\s*bis\s*({time_pat})", text, re.I)
+    # Pattern mit 'von ... bis ...'
+    m = re.search(rf"von\s*({time_pat})\s*bis\s*({time_pat})", sanitized, re.I)
     if m:
         return m.group(1), m.group(2)
-    # Single time (fallback)
-    m = re.search(rf"({time_pat})", text)
+    # Einzelne Zeit (Fallback)
+    m = re.search(rf"({time_pat})", sanitized)
     if m:
         return m.group(1), None
     return None, None
@@ -822,10 +828,13 @@ def parse_german_date(date_str: str) -> datetime:
 
 
 def parse_time(time_str: str) -> Tuple[int, int]:
-    """Parse HH:MM -> (hour, minute)."""
+    """Parse HH:MM oder HH.MM -> (hour, minute) mit Validierung."""
     sep = ":" if ":" in time_str else "."
-    hour, minute = time_str.split(sep)
-    return int(hour), int(minute)
+    hour_str, minute_str = time_str.split(sep)
+    hour, minute = int(hour_str), int(minute_str)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"Ungültige Zeit: {time_str}")
+    return hour, minute
 
 
 def stable_uid(start_dt: datetime, end_dt: datetime, location: Optional[str], description: str) -> str:
