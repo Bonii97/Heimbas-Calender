@@ -4,6 +4,7 @@ import re
 import json
 import argparse
 import hashlib
+import requests
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -14,7 +15,8 @@ from zoneinfo import ZoneInfo
 
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
-
+# Ergaenzung (Codex): Webhook-Konfiguration fuer Google Sheets.
+GSHEETS_WEBHOOK = os.environ.get("GSHEETS_WEBHOOK", "").strip()
 
 def debug(msg: str) -> None:
     """Lightweight debug logger to stderr."""
@@ -860,6 +862,60 @@ def slugify_name(name: str) -> str:
     return s or "user"
 
 
+# Ergaenzung (Codex): Hilfsfunktionen fuer den Webhook-Export.
+def make_einsatz_id_from_entry(entry: Dict[str, Any]) -> str:
+    """Create a stable SHA1 over the essential plan fields."""
+    date_str = str(entry.get("date", "")).strip()
+    start_str = str(entry.get("start_time", "")).strip()
+    end_str = str(entry.get("end_time", "")).strip()
+    address = str(entry.get("address", "") or "").strip()
+    title = str(entry.get("title") or "").strip()
+    if not title:
+        description = str(entry.get("description", "")).strip()
+        first_line = description.split("\n")[0]
+        title = re.split(r"[\.!?]", first_line)[0].strip() or "Einsatz"
+    raw = "|".join([date_str, start_str, end_str, address, title])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
+    """Send plan entries to the configured Google Sheets webhook."""
+    if not GSHEETS_WEBHOOK or not entries:
+        return
+    for entry in entries:
+        try:
+            date_str = str(entry.get("date", "")).strip()
+            title_text = str(entry.get("title") or "").strip()
+            if not title_text:
+                description = str(entry.get("description", "")).strip()
+                first_line = description.split("\n")[0]
+                title_text = re.split(r"[\.!?]", first_line)[0].strip() or "Einsatz"
+            entry_for_hash = dict(entry)
+            entry_for_hash.setdefault("title", title_text)
+            einsatz_id = make_einsatz_id_from_entry(entry_for_hash)
+            try:
+                iso_date = parse_german_date(date_str).strftime("%Y-%m-%d")
+            except Exception:
+                iso_date = ""
+            payload = {
+                "type": "plan",
+                "user": user_label,
+                "einsatzId": einsatz_id,
+                "datum": iso_date or date_str,
+                "start_plan": str(entry.get("start_time", "")).strip(),
+                "ende_plan": str(entry.get("end_time", "")).strip(),
+                "titel": title_text,
+                "adresse": str(entry.get("address", "") or "").strip(),
+            }
+            response = requests.post(GSHEETS_WEBHOOK, json=payload, timeout=10)
+            if response.status_code >= 400:
+                debug(f"Webhook-Fehler ({response.status_code}) fuer Einsatz {einsatz_id}")
+        except requests.RequestException as req_err:
+            debug(f"Webhook nicht erreichbar: {req_err}")
+        except Exception as err:
+            debug(f"Webhook payload Fehler: {err}")
+
+
 def build_ics(entries: List[Dict[str, Any]], output_path: str) -> None:
     """Create an ICS file from parsed entries."""
     cal = Calendar()
@@ -978,6 +1034,8 @@ def main() -> None:
             try:
                 debug(f"Lese Einsätze für '{name_raw}' (Datei-Slug: '{name}')…")
                 user_entries = fetch_entries_for_user(base_url, u, p)
+                # Ergaenzung (Codex): Webhook pro Benutzer direkt nach dem Abruf.
+                send_plan_records(user_label=name, entries=user_entries)
                 combined_entries.extend(user_entries)
                 # pro User eigene Datei
                 out_user_path = f"dienstplan_{name}.ics"
@@ -1005,6 +1063,8 @@ def main() -> None:
 
     try:
         entries = fetch_entries_for_user(base_url, username, password)
+        # Ergaenzung (Codex): Webhook fuer den Single-User-Ausgang.
+        send_plan_records(user_label=slugify_name(username), entries=entries)
         build_ics(entries, args.output)
     except RuntimeError as e:
         print(f"Fehler: {e}", file=sys.stderr)
