@@ -829,6 +829,31 @@ def parse_german_date(date_str: str) -> datetime:
     return datetime(int(year), int(month), int(day))
 
 
+def parse_date_flexible(date_str: str) -> Optional[datetime]:
+    """Parse German or ISO dates to a datetime, return None on failure."""
+
+    date_clean = str(date_str or "").strip()
+    if not date_clean:
+        return None
+
+    try:
+        return parse_german_date(date_clean)
+    except Exception:
+        pass
+
+    # ISO-Datei-Formate (mit oder ohne Uhrzeit) tolerieren
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(date_clean, fmt)
+        except Exception:
+            continue
+
+    try:
+        return datetime.fromisoformat(date_clean)
+    except Exception:
+        return None
+
+
 def parse_time(time_str: str) -> Tuple[int, int]:
     """Parse HH:MM oder HH.MM -> (hour, minute) mit Validierung."""
     sep = ":" if ":" in time_str else "."
@@ -882,6 +907,19 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
     """Send plan entries to the configured Google Sheets webhook."""
     if not GSHEETS_WEBHOOK or not entries:
         return
+
+    def compute_end_string(start_time: str, duration_minutes: Optional[int]) -> str:
+        """Return an HH:MM end time based on start time and duration (default 60m)."""
+        duration = duration_minutes if isinstance(duration_minutes, int) and duration_minutes > 0 else 60
+        try:
+            start_hour, start_minute = parse_time(start_time)
+            total_minutes = start_hour * 60 + start_minute + duration
+            end_hour = (total_minutes // 60) % 24
+            end_minute = total_minutes % 60
+            return f"{end_hour:02d}:{end_minute:02d}"
+        except Exception:
+            return start_time or "00:00"
+
     for entry in entries:
         try:
             date_str = str(entry.get("date", "")).strip()
@@ -893,19 +931,48 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             entry_for_hash = dict(entry)
             entry_for_hash.setdefault("title", title_text)
             einsatz_id = make_einsatz_id_from_entry(entry_for_hash)
-            try:
-                iso_date = parse_german_date(date_str).strftime("%Y-%m-%d")
-            except Exception:
-                iso_date = ""
+            date_dt = parse_date_flexible(date_str)
+            german_date = date_dt.strftime("%d.%m.%Y") if date_dt else ""
+            duration_minutes_raw = entry.get("duration_minutes")
+            duration_minutes = duration_minutes_raw if isinstance(duration_minutes_raw, int) and duration_minutes_raw > 0 else 60
+
+            start_raw = entry.get("start_time")
+            start_str = str(start_raw).strip() if start_raw is not None else ""
+            if start_str.lower() == "none":
+                start_str = ""
+            raw_end = entry.get("end_time")
+            end_str = str(raw_end).strip() if raw_end is not None else ""
+            if end_str.lower() == "none":
+                end_str = ""
+
+            if not start_str:
+                start_str = "00:00"
+
+            if not end_str:
+                end_str = compute_end_string(start_str, duration_minutes)
+
+            if not end_str:
+                end_str = start_str or "00:00"
+
+            updated_am = datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M")
+            dauer_hours = duration_minutes / 60.0
+            dauer_display = f"{dauer_hours:.2f}".replace(".", ",")
+
             payload = {
-                "type": "plan",
-                "user": user_label,
-                "einsatzId": einsatz_id,
-                "datum": iso_date or date_str,
-                "start_plan": str(entry.get("start_time", "")).strip(),
-                "ende_plan": str(entry.get("end_time", "")).strip(),
+                # Einheitliche snake_case-Felder wie in den Tabellenüberschriften
+                "einsatz_id": einsatz_id,
+                "datum": german_date or date_str,
+                "start_plan": start_str,
+                "ende_plan": end_str,
+                "dauer": dauer_display,
                 "titel": title_text,
                 "adresse": str(entry.get("address", "") or "").strip(),
+                "start_ist": str(entry.get("start_ist", "") or "").strip(),
+                "ende_ist": str(entry.get("ende_ist", "") or "").strip(),
+                "km": str(entry.get("km", "") or "").strip(),
+                "notiz": str(entry.get("note", "") or "").strip(),
+                # Neue Spaltenbezeichnung laut Wunsch
+                "aktualisiert_am": updated_am,
             }
             response = requests.post(GSHEETS_WEBHOOK, json=payload, timeout=10)
             if response.status_code >= 400:
