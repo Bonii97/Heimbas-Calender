@@ -43,6 +43,7 @@ jobs:
         env:
           HEIMBAS_USER: ${{ secrets.HEIMBAS_USER }}
           HEIMBAS_PASS: ${{ secrets.HEIMBAS_PASS }}
+          GSHEETS_WEBHOOK: ${{ secrets.GSHEETS_WEBHOOK }}
           # Unterstütze sowohl Secret als auch Repository Variable
           USERS_JSON: ${{ secrets.USERS_JSON || vars.USERS_JSON }}
         run: |
@@ -154,5 +155,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-
