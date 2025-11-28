@@ -955,13 +955,18 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             updated_am = datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M")
 
             payload = {
-                "type": "plan",
-                "einsatzId": einsatz_id,
+                # Einheitliche snake_case-Felder wie in den Tabellenüberschriften
+                "einsatz_id": einsatz_id,
                 "datum": german_date or date_str,
                 "start_plan": start_str,
                 "ende_plan": end_str,
                 "titel": title_text,
                 "adresse": str(entry.get("address", "") or "").strip(),
+                "start_ist": str(entry.get("start_ist", "") or "").strip(),
+                "ende_ist": str(entry.get("ende_ist", "") or "").strip(),
+                "km": str(entry.get("km", "") or "").strip(),
+                "notiz": str(entry.get("note", "") or "").strip(),
+                # Neue Spaltenbezeichnung laut Wunsch: Updated_am / Upgedated_am
                 "updated_am": updated_am,
             }
             response = requests.post(GSHEETS_WEBHOOK, json=payload, timeout=10)
