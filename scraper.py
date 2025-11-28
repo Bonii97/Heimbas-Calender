@@ -907,6 +907,19 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
     """Send plan entries to the configured Google Sheets webhook."""
     if not GSHEETS_WEBHOOK or not entries:
         return
+
+    def compute_end_string(start_time: str, duration_minutes: Optional[int]) -> str:
+        """Return an HH:MM end time based on start time and duration (default 60m)."""
+        duration = duration_minutes if isinstance(duration_minutes, int) and duration_minutes > 0 else 60
+        try:
+            start_hour, start_minute = parse_time(start_time)
+            total_minutes = start_hour * 60 + start_minute + duration
+            end_hour = (total_minutes // 60) % 24
+            end_minute = total_minutes % 60
+            return f"{end_hour:02d}:{end_minute:02d}"
+        except Exception:
+            return start_time or "00:00"
+
     for entry in entries:
         try:
             date_str = str(entry.get("date", "")).strip()
@@ -934,34 +947,22 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
                 start_str = "00:00"
 
             if not end_str:
-                duration_minutes = entry.get("duration_minutes")
-                try:
-                    start_dt = date_dt or parse_date_flexible(date_str)
-                    start_hour, start_minute = parse_time(start_str)
-                    duration = duration_minutes if isinstance(duration_minutes, int) and duration_minutes > 0 else 60
-                    if start_dt:
-                        computed_end = datetime(
-                            start_dt.year,
-                            start_dt.month,
-                            start_dt.day,
-                            start_hour,
-                            start_minute,
-                        ) + timedelta(minutes=duration)
-                        end_str = f"{computed_end.hour:02d}:{computed_end.minute:02d}"
-                except Exception:
-                    end_str = ""
+                end_str = compute_end_string(start_str, entry.get("duration_minutes"))
 
             if not end_str:
                 end_str = start_str or "00:00"
+
+            updated_am = datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M")
+
             payload = {
                 "type": "plan",
-                "user": user_label,
                 "einsatzId": einsatz_id,
                 "datum": german_date or date_str,
                 "start_plan": start_str,
                 "ende_plan": end_str,
                 "titel": title_text,
                 "adresse": str(entry.get("address", "") or "").strip(),
+                "updated_am": updated_am,
             }
             response = requests.post(GSHEETS_WEBHOOK, json=payload, timeout=10)
             if response.status_code >= 400:
