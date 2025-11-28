@@ -894,16 +894,41 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             entry_for_hash.setdefault("title", title_text)
             einsatz_id = make_einsatz_id_from_entry(entry_for_hash)
             try:
-                iso_date = parse_german_date(date_str).strftime("%Y-%m-%d")
+                german_date = parse_german_date(date_str).strftime("%d.%m.%Y")
             except Exception:
-                iso_date = ""
+                german_date = ""
+
+            start_str = str(entry.get("start_time", "")).strip()
+            if start_str.lower() == "none":
+                start_str = ""
+            raw_end = entry.get("end_time")
+            end_str = str(raw_end).strip() if raw_end is not None else ""
+            if end_str.lower() == "none":
+                end_str = ""
+
+            if not end_str:
+                duration_minutes = entry.get("duration_minutes")
+                try:
+                    start_dt = parse_german_date(date_str)
+                    start_hour, start_minute = parse_time(start_str)
+                    duration = duration_minutes if isinstance(duration_minutes, int) and duration_minutes > 0 else 60
+                    computed_end = datetime(
+                        start_dt.year,
+                        start_dt.month,
+                        start_dt.day,
+                        start_hour,
+                        start_minute,
+                    ) + timedelta(minutes=duration)
+                    end_str = f"{computed_end.hour:02d}:{computed_end.minute:02d}"
+                except Exception:
+                    end_str = ""
             payload = {
                 "type": "plan",
                 "user": user_label,
                 "einsatzId": einsatz_id,
-                "datum": iso_date or date_str,
-                "start_plan": str(entry.get("start_time", "")).strip(),
-                "ende_plan": str(entry.get("end_time", "")).strip(),
+                "datum": german_date or date_str,
+                "start_plan": start_str,
+                "ende_plan": end_str,
                 "titel": title_text,
                 "adresse": str(entry.get("address", "") or "").strip(),
             }
