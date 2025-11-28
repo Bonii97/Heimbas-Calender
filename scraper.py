@@ -829,6 +829,21 @@ def parse_german_date(date_str: str) -> datetime:
     return datetime(int(year), int(month), int(day))
 
 
+def parse_date_flexible(date_str: str) -> Optional[datetime]:
+    """Parse German or ISO dates to a datetime, return None on failure."""
+
+    if not date_str:
+        return None
+
+    try:
+        return parse_german_date(date_str)
+    except Exception:
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d")
+        except Exception:
+            return None
+
+
 def parse_time(time_str: str) -> Tuple[int, int]:
     """Parse HH:MM oder HH.MM -> (hour, minute) mit Validierung."""
     sep = ":" if ":" in time_str else "."
@@ -893,10 +908,8 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             entry_for_hash = dict(entry)
             entry_for_hash.setdefault("title", title_text)
             einsatz_id = make_einsatz_id_from_entry(entry_for_hash)
-            try:
-                german_date = parse_german_date(date_str).strftime("%d.%m.%Y")
-            except Exception:
-                german_date = ""
+            date_dt = parse_date_flexible(date_str)
+            german_date = date_dt.strftime("%d.%m.%Y") if date_dt else ""
 
             start_str = str(entry.get("start_time", "")).strip()
             if start_str.lower() == "none":
@@ -909,19 +922,23 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             if not end_str:
                 duration_minutes = entry.get("duration_minutes")
                 try:
-                    start_dt = parse_german_date(date_str)
+                    start_dt = date_dt or parse_date_flexible(date_str)
                     start_hour, start_minute = parse_time(start_str)
                     duration = duration_minutes if isinstance(duration_minutes, int) and duration_minutes > 0 else 60
-                    computed_end = datetime(
-                        start_dt.year,
-                        start_dt.month,
-                        start_dt.day,
-                        start_hour,
-                        start_minute,
-                    ) + timedelta(minutes=duration)
-                    end_str = f"{computed_end.hour:02d}:{computed_end.minute:02d}"
+                    if start_dt:
+                        computed_end = datetime(
+                            start_dt.year,
+                            start_dt.month,
+                            start_dt.day,
+                            start_hour,
+                            start_minute,
+                        ) + timedelta(minutes=duration)
+                        end_str = f"{computed_end.hour:02d}:{computed_end.minute:02d}"
                 except Exception:
                     end_str = ""
+
+            if not end_str:
+                end_str = start_str or "00:00"
             payload = {
                 "type": "plan",
                 "user": user_label,
