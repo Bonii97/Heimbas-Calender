@@ -933,6 +933,8 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             einsatz_id = make_einsatz_id_from_entry(entry_for_hash)
             date_dt = parse_date_flexible(date_str)
             german_date = date_dt.strftime("%d.%m.%Y") if date_dt else ""
+            duration_minutes_raw = entry.get("duration_minutes")
+            duration_minutes = duration_minutes_raw if isinstance(duration_minutes_raw, int) and duration_minutes_raw > 0 else 60
 
             start_raw = entry.get("start_time")
             start_str = str(start_raw).strip() if start_raw is not None else ""
@@ -947,12 +949,14 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
                 start_str = "00:00"
 
             if not end_str:
-                end_str = compute_end_string(start_str, entry.get("duration_minutes"))
+                end_str = compute_end_string(start_str, duration_minutes)
 
             if not end_str:
                 end_str = start_str or "00:00"
 
             updated_am = datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M")
+            dauer_hours = duration_minutes / 60.0
+            dauer_display = f"{dauer_hours:.2f}".replace(".", ",")
 
             payload = {
                 # Einheitliche snake_case-Felder wie in den Tabellenüberschriften
@@ -960,14 +964,15 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
                 "datum": german_date or date_str,
                 "start_plan": start_str,
                 "ende_plan": end_str,
+                "dauer": dauer_display,
                 "titel": title_text,
                 "adresse": str(entry.get("address", "") or "").strip(),
                 "start_ist": str(entry.get("start_ist", "") or "").strip(),
                 "ende_ist": str(entry.get("ende_ist", "") or "").strip(),
                 "km": str(entry.get("km", "") or "").strip(),
                 "notiz": str(entry.get("note", "") or "").strip(),
-                # Neue Spaltenbezeichnung laut Wunsch: Updated_am / Upgedated_am
-                "updated_am": updated_am,
+                # Neue Spaltenbezeichnung laut Wunsch
+                "aktualisiert_am": updated_am,
             }
             response = requests.post(GSHEETS_WEBHOOK, json=payload, timeout=10)
             if response.status_code >= 400:
