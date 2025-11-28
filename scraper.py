@@ -832,16 +832,26 @@ def parse_german_date(date_str: str) -> datetime:
 def parse_date_flexible(date_str: str) -> Optional[datetime]:
     """Parse German or ISO dates to a datetime, return None on failure."""
 
-    if not date_str:
+    date_clean = str(date_str or "").strip()
+    if not date_clean:
         return None
 
     try:
-        return parse_german_date(date_str)
+        return parse_german_date(date_clean)
     except Exception:
+        pass
+
+    # ISO-Datei-Formate (mit oder ohne Uhrzeit) tolerieren
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(date_str, "%Y-%m-%d")
+            return datetime.strptime(date_clean, fmt)
         except Exception:
-            return None
+            continue
+
+    try:
+        return datetime.fromisoformat(date_clean)
+    except Exception:
+        return None
 
 
 def parse_time(time_str: str) -> Tuple[int, int]:
@@ -911,13 +921,17 @@ def send_plan_records(user_label: str, entries: List[Dict[str, Any]]) -> None:
             date_dt = parse_date_flexible(date_str)
             german_date = date_dt.strftime("%d.%m.%Y") if date_dt else ""
 
-            start_str = str(entry.get("start_time", "")).strip()
+            start_raw = entry.get("start_time")
+            start_str = str(start_raw).strip() if start_raw is not None else ""
             if start_str.lower() == "none":
                 start_str = ""
             raw_end = entry.get("end_time")
             end_str = str(raw_end).strip() if raw_end is not None else ""
             if end_str.lower() == "none":
                 end_str = ""
+
+            if not start_str:
+                start_str = "00:00"
 
             if not end_str:
                 duration_minutes = entry.get("duration_minutes")
