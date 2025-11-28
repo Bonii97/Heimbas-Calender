@@ -3,4 +3,5 @@ beautifulsoup4==4.12.3
 lxml==5.2.2
 icalendar==5.0.12
 tzdata==2024.1
+requests
 
